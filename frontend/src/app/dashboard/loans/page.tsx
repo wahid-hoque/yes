@@ -1,100 +1,100 @@
 'use client';
 
-import { Download, TrendingUp, AlertCircle, CheckCircle } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { CheckCircle, Clock, History, AlertCircle } from 'lucide-react';
+import { loanAPI } from '@/lib/api';
 
 export default function LoansPage() {
+  const [data, setData] = useState<any>(null);
+  const [amount, setAmount] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  const loadData = async () => {
+    const res = await (loanAPI as any).getStatus(); // Ensure this is in api.ts
+    setData(res.data.data);
+    setLoading(false);
+  };
+
+  useEffect(() => { loadData(); }, []);
+
+  const handleRepay = async (loanId: string) => {
+    if (!confirm("Repay loan with 9% interest?")) return;
+    try {
+      await (loanAPI as any).repay(loanId);
+      alert("Repaid Successfully!");
+      loadData();
+    } catch (err: any) {
+      alert(err.response?.data?.message || "Repayment failed");
+    }
+  };
+
+  if (loading) return <div className="p-10 text-center">Loading...</div>;
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Loans</h1>
-        <p className="text-gray-600 mt-1">Apply for loans and manage your repayments</p>
-      </div>
+    <div className="max-w-4xl mx-auto p-6 space-y-8">
+      <h1 className="text-3xl font-bold text-gray-900">Loan Management</h1>
 
-      {/* Loan Eligibility Card */}
-      <div className="card bg-gradient-to-br from-primary-500 to-primary-700 text-white">
-        <div className="flex items-start justify-between">
+      {/* ACTIVE LOAN SECTION */}
+      {data.activeLoan ? (
+        <div className="bg-indigo-700 text-white p-6 rounded-2xl shadow-xl">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="opacity-80 text-sm">Active Loan (Principal: ৳{data.activeLoan.principal_amount})</p>
+              <h2 className="text-4xl font-bold mt-1">Total Due: ৳{data.activeLoan.principal_amount * 1.09}</h2>
+              <p className="mt-2 text-xs bg-indigo-500 inline-block px-2 py-1 rounded">Status: {data.activeLoan.status}</p>
+            </div>
+            <button 
+              onClick={() => handleRepay(data.activeLoan.loan_id)}
+              className="bg-white text-indigo-700 px-6 py-2 rounded-lg font-bold hover:bg-gray-100 transition-colors"
+            >
+              Repay Now
+            </button>
+          </div>
+        </div>
+      ) : data.latestApplication?.decision_status === 'submitted' ? (
+        <div className="bg-yellow-50 border-2 border-yellow-200 p-6 rounded-2xl flex items-center gap-4">
+          <Clock className="text-yellow-600 w-12 h-12" />
           <div>
-            <h2 className="text-lg font-medium opacity-90 mb-2">Your Loan Limit</h2>
-            <div className="text-4xl font-bold mb-4">৳ 50,000</div>
-            <p className="text-sm opacity-90">Based on your transaction history</p>
+            <h3 className="font-bold text-yellow-800 text-lg">Application Under Review</h3>
+            <p className="text-yellow-700">Requested ৳{data.latestApplication.requested_amount}. Check back soon!</p>
           </div>
-          <Download className="w-8 h-8 opacity-90" />
         </div>
-        <button className="mt-6 w-full bg-white text-primary-600 py-3 rounded-lg font-medium hover:bg-gray-100 transition-colors">
-          Apply for Loan
-        </button>
-      </div>
+      ) : (
+        <div className="bg-white border rounded-2xl p-6 shadow-sm">
+            <p className="text-gray-600">Your Loan Limit</p>
+            <h2 className="text-2xl font-black text-primary-600 ">৳{data.limit}</h2>
+            <div className="mt-6 flex gap-3">
+                <input type="number" className="border p-3 flex-1 rounded-xl" placeholder="Amount (min 500)" onChange={e => setAmount(Number(e.target.value))} />
+                <button onClick={() => loanAPI.apply({amount}).then(loadData)} disabled={amount < 500 || amount > data.limit} className="bg-primary-600 text-white px-8 rounded-xl font-bold disabled:bg-gray-300">Apply</button>
+            </div>
+        </div>
+      )}
 
-      {/* Loan Features */}
-      <div className="grid md:grid-cols-3 gap-6">
-        <div className="card text-center">
-          <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-            <CheckCircle className="w-6 h-6 text-green-600" />
-          </div>
-          <h3 className="font-semibold text-gray-900 mb-2">Instant Approval</h3>
-          <p className="text-sm text-gray-600">Get approved in minutes</p>
-        </div>
-
-        <div className="card text-center">
-          <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
-            <TrendingUp className="w-6 h-6 text-blue-600" />
-          </div>
-          <h3 className="font-semibold text-gray-900 mb-2">Low Interest</h3>
-          <p className="text-sm text-gray-600">Starting from 8% per annum</p>
-        </div>
-
-        <div className="card text-center">
-          <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
-            <AlertCircle className="w-6 h-6 text-purple-600" />
-          </div>
-          <h3 className="font-semibold text-gray-900 mb-2">Flexible Repayment</h3>
-          <p className="text-sm text-gray-600">Choose your repayment period</p>
-        </div>
-      </div>
-
-      {/* Active Loans */}
-      <div className="card">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold">Active Loans</h2>
-          <button className="text-primary-600 hover:text-primary-700 text-sm font-medium">
-            View All
-          </button>
-        </div>
-        <div className="text-center py-12 text-gray-500">
-          <Download className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-          <p>No active loans</p>
-          <p className="text-sm mt-2">Apply for a loan to get started</p>
-        </div>
-      </div>
-
-      {/* Loan Calculator */}
-      <div className="card">
-        <h2 className="text-xl font-bold mb-4">Loan Calculator</h2>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Loan Amount
-            </label>
-            <input
-              type="number"
-              placeholder="Enter amount"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Repayment Period (months)
-            </label>
-            <select className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent">
-              <option>3 months</option>
-              <option>6 months</option>
-              <option>12 months</option>
-              <option>24 months</option>
-            </select>
-          </div>
-          <button className="w-full bg-primary-600 text-white py-3 rounded-lg font-medium hover:bg-primary-700 transition-colors">
-            Calculate EMI
-          </button>
+      {/* LOAN HISTORY SECTION */}
+      <div className="space-y-4">
+        <h3 className="text-xl font-bold flex items-center gap-2"><History className="w-5 h-5"/> Loan History</h3>
+        <div className="bg-white border rounded-xl overflow-hidden">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 text-gray-500 text-sm">
+              <tr>
+                <th className="p-4">Amount</th>
+                <th className="p-4">Paid Total (Inc. 9%)</th>
+                <th className="p-4">Repaid Date</th>
+                <th className="p-4">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {data.history.map((h: any) => (
+                <tr key={h.loan_id}>
+                  <td className="p-4 font-medium">৳{h.principal_amount}</td>
+                  <td className="p-4">৳{h.principal_amount * 1.09}</td>
+                  <td className="p-4 text-sm text-gray-500">{new Date(h.repaid_at).toLocaleDateString()}</td>
+                  <td className="p-4"><span className="text-green-600 text-xs font-bold uppercase">Repaid</span></td>
+                </tr>
+              ))}
+              {data.history.length === 0 && <tr><td colSpan={4} className="p-10 text-center text-gray-400">No past loans found</td></tr>}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
