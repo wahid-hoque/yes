@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { CheckCircle, Clock, History, AlertCircle } from 'lucide-react';
-import { loanAPI } from '@/lib/api';
+import { loanAPI, adminApi } from '@/lib/api';
 
 export default function LoansPage() {
   const [data, setData] = useState<any>(null);
@@ -32,7 +32,7 @@ export default function LoansPage() {
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-8">
-      <h1 className="text-3xl font-bold text-gray-900">Loan Management</h1>
+      <h1 className="text-3xl font-bold">Loan Management</h1>
 
       {/* ACTIVE LOAN SECTION */}
       {data.activeLoan ? (
@@ -61,8 +61,8 @@ export default function LoansPage() {
         </div>
       ) : (
         <div className="bg-white border rounded-2xl p-6 shadow-sm">
-            <p className="text-gray-600">Your Loan Limit</p>
-            <h2 className="text-2xl font-black text-primary-600 ">৳{data.limit}</h2>
+            <p className="text-gray-500">Your Credit Limit</p>
+            <h2 className="text-5xl font-black text-green-600">৳{data.limit}</h2>
             <div className="mt-6 flex gap-3">
                 <input type="number" className="border p-3 flex-1 rounded-xl" placeholder="Amount (min 500)" onChange={e => setAmount(Number(e.target.value))} />
                 <button onClick={() => loanAPI.apply({amount}).then(loadData)} disabled={amount < 500 || amount > data.limit} className="bg-primary-600 text-white px-8 rounded-xl font-bold disabled:bg-gray-300">Apply</button>
