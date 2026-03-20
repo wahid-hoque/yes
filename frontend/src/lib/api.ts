@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { get } from 'http';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
 
@@ -46,6 +47,7 @@ export const authAPI = {
   login: (data: any) => apiClient.post('/auth/login', data),
   getProfile: () => apiClient.get('/auth/profile'),
   logout: () => apiClient.post('/auth/logout'),
+  changePin: (data: { oldPin: string; newPin: string }) => apiClient.post('/auth/change-pin', data),
 };
 
 export const transactionAPI = {
@@ -174,7 +176,12 @@ export const adminApi = {
     getAuditLogs: async (limit = 50) => {
         const response = await apiClient.get(`/admin/audit-logs?limit=${limit}`);
         return response.data;
+    },
+
+    getDetailedLoans: async () => {
+      // This maps to /api/v1/loans/admin/detailed in your backend
+      const response = await apiClient.get('/loans/admin/detailed');
+      return response.data;
     }
 };
-
 
