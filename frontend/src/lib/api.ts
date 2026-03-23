@@ -63,7 +63,8 @@ export const transactionAPI = {
   updateRequestStatus: (requestId: string, status: 'declined' | 'cancelled') => 
     apiClient.patch(`/transactions/requests/${requestId}/status`, { status }),
   cashIn: (data: any) => apiClient.post('/transactions/cash-in', data),
-  cashOut: (data: any) => apiClient.post('/transactions/cash-out', data),
+  cashOut: (data: { agentPhone: string; amount: number; epin: string }) => 
+    apiClient.post('/transactions/cash-out', data),
   getHistory: (params?: any) => apiClient.get('/transactions/history', { params }),
   getDetails: (id: string) => apiClient.get(`/transactions/${id}`),
 };
@@ -104,15 +105,6 @@ export const savingsAPI = {
   getDetails: (id: string) => apiClient.get(`/savings/accounts/${id}`),
   break: (id: string) => apiClient.post(`/savings/accounts/${id}/break`),
   calculateInterest: (id: string) => apiClient.get(`/savings/accounts/${id}/interest`),
-};
-
-export const subscriptionAPI = {
-  create: (data: any) => apiClient.post('/subscriptions/create', data),
-  getMy: () => apiClient.get('/subscriptions/my-subscriptions'),
-  getDetails: (id: string) => apiClient.get(`/subscriptions/${id}`),
-  pause: (id: string) => apiClient.patch(`/subscriptions/${id}/pause`),
-  resume: (id: string) => apiClient.patch(`/subscriptions/${id}/resume`),
-  cancel: (id: string) => apiClient.delete(`/subscriptions/${id}`),
 };
 
 export const notificationAPI = {
@@ -184,4 +176,24 @@ export const adminApi = {
       return response.data;
     }
 };
+
+export const merchantAPI = {
+  getMerchants: () => apiClient.get('/merchants'),
+  getMerchantDetails: (id: string) => apiClient.get(`/merchants/${id}`),
+  getSubscriptionStatus: () => apiClient.get('/merchant/subscription/status'),
+  subscribe: (data: { planType: 'monthly' | 'semi-annual'; epin: string }) => 
+    apiClient.post('/merchant/subscription/subscribe', data),
+  sendMoney: (data: { toPhone: string; amount: number; epin: string }) =>
+    apiClient.post('/merchant/send', data),
+};
+
+export const subscriptionAPI = {
+  getSubscriptions: () => apiClient.get('/subscriptions/my-subscriptions'),
+  subscribe: (data: { merchantId: string; planName: string; amount: number; epin: string }) => 
+    apiClient.post('/subscriptions/subscribe', data),
+  cancelSubscription: (id: string) => apiClient.patch(`/subscriptions/${id}/cancel`),
+  updateStatus: (id: string, status: string) => 
+    apiClient.patch(`/subscriptions/${id}/status`, { status }),
+};
+
 

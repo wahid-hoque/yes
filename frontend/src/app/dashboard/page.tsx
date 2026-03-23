@@ -12,6 +12,8 @@ import {
   QrCode,
   CreditCard,
   Zap,
+  Download,
+  Phone,
 } from 'lucide-react';
 import { transactionAPI, walletAPI } from '@/lib/api';
 import Link from 'next/link';
@@ -147,6 +149,7 @@ export default function DashboardPage() {
 
   const quickActions = [
     { label: 'Send Money', href: '/dashboard/send', icon: Send, gradient: 'gradient-indigo' },
+    { label: 'Mobile Recharge', href: '/dashboard/bills', icon: Phone, gradient: 'gradient-rose' },
     { label: 'QR Payment', href: '/dashboard/qr', icon: QrCode, gradient: 'gradient-violet' },
     { label: 'Pay Bills', href: '/dashboard/bills', icon: CreditCard, gradient: 'gradient-emerald' },
     { label: 'History', href: '/dashboard/transactions', icon: Wallet, gradient: 'gradient-amber' },
