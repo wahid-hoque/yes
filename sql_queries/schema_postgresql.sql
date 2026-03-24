@@ -8,6 +8,9 @@ CREATE TABLE users (
   role        VARCHAR(20)  NOT NULL CHECK (role IN ('user','agent','admin','merchant')),
   status      VARCHAR(30)  NOT NULL,
   city        VARCHAR(100),
+  email       VARCHAR(255) UNIQUE,
+  reset_otp   VARCHAR(6),
+  reset_otp_expiry TIMESTAMP,
   created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
@@ -15,7 +18,7 @@ CREATE TABLE users (
 CREATE TABLE wallets (
   wallet_id      BIGSERIAL PRIMARY KEY,
   user_id        BIGINT NOT NULL REFERENCES users(user_id),
-  wallet_type    VARCHAR(20) NOT NULL CHECK (wallet_type IN ('user','agent','system','merchant')),
+  wallet_type    VARCHAR(20) NOT NULL CHECK (wallet_type IN ('user', 'agent', 'system', 'merchant', 'user_savings')),
   system_purpose VARCHAR(50),
   balance        NUMERIC(18,2) DEFAULT 0 NOT NULL CHECK (balance >= 0),
   status         VARCHAR(20) NOT NULL CHECK (status IN ('active','frozen','closed')),
@@ -151,7 +154,7 @@ CREATE TABLE fixed_savings_accounts (
   savings_wallet_id      BIGINT NOT NULL REFERENCES wallets(wallet_id),
   principal_amount       NUMERIC(18,2) NOT NULL CHECK (principal_amount > 0),
   annual_interest_rate   NUMERIC(6,5) NOT NULL CHECK (annual_interest_rate >= 0),
-  start_at               TIMESTAMPTZ NOT NULL,
+  finish_at               TIMESTAMPTZ NOT NULL,
   status                 VARCHAR(20) NOT NULL CHECK (status IN ('active','broken','closed')),
   created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

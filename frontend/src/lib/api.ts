@@ -48,6 +48,9 @@ export const authAPI = {
   getProfile: () => apiClient.get('/auth/profile'),
   logout: () => apiClient.post('/auth/logout'),
   changePin: (data: { oldPin: string; newPin: string }) => apiClient.post('/auth/change-pin', data),
+  forgotPassword: (data: { phone: string }) => apiClient.post('/auth/forgot-password', data),
+  verifyResetOtp: (data: { phone: string; otp: string }) => apiClient.post('/auth/verify-reset-otp', data),
+  resetPassword: (data: { phone: string; otp: string; newEpin: string }) => apiClient.post('/auth/reset-password', data),
 };
 
 export const transactionAPI = {
@@ -100,11 +103,27 @@ export const loanAPI = {
 };
 
 export const savingsAPI = {
-  create: (data: any) => apiClient.post('/savings/create', data),
+  /**
+   * Fetches all savings accounts for the logged-in user.
+   * Backend: GET /api/savings/accounts
+   */
   getAccounts: () => apiClient.get('/savings/accounts'),
-  getDetails: (id: string) => apiClient.get(`/savings/accounts/${id}`),
-  break: (id: string) => apiClient.post(`/savings/accounts/${id}/break`),
-  calculateInterest: (id: string) => apiClient.get(`/savings/accounts/${id}/interest`),
+
+  /**
+   * Creates a new fixed savings account.
+   * @param data { amount: number, durationMonths: number, epin: string }
+   * Backend: POST /api/savings/create
+   */
+  create: (data: { amount: number; durationMonths: number; epin: string }) => 
+    apiClient.post('/savings/create', data),
+
+  /**
+   * Closes or breaks an active savings account early.
+   * @param id The fixed_savings_id
+   * Backend: POST /api/savings/accounts/:id/break
+   */
+  break: (id: string | number) => 
+    apiClient.post(`/savings/accounts/${id}/break`),
 };
 
 export const notificationAPI = {
@@ -188,12 +207,16 @@ export const merchantAPI = {
 };
 
 export const subscriptionAPI = {
-  getSubscriptions: () => apiClient.get('/subscriptions/my-subscriptions'),
-  subscribe: (data: { merchantId: string; planName: string; amount: number; epin: string }) => 
+  // Ensure the string starts with '/subscriptions' 
+  // to match the backend mounting point
+  getDashboard: () => apiClient.get('/subscriptions/dashboard'),
+
+  subscribe: (data: { merchantUserId: number; epin: string }) => 
     apiClient.post('/subscriptions/subscribe', data),
-  cancelSubscription: (id: string) => apiClient.patch(`/subscriptions/${id}/cancel`),
-  updateStatus: (id: string, status: string) => 
-    apiClient.patch(`/subscriptions/${id}/status`, { status }),
+
+  // Note: Ensure the 'id' is passed correctly
+  toggleRenew: (id: number) => 
+    apiClient.patch(`/subscriptions/${id}/toggle-renew`),
 };
 
 

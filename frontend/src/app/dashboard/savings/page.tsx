@@ -1,121 +1,277 @@
 'use client';
 
-import { TrendingUp, PiggyBank, Target, Plus } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { savingsAPI } from '@/lib/api';
+import { useToast } from '@/contexts/toastcontext';
+import { 
+  PiggyBank, TrendingUp, AlertTriangle, 
+  Loader2, Lock, Unlock, Calendar, History, X 
+} from 'lucide-react';
+
+interface SavingsAccount {
+  id: number;
+  principal_amount: string;
+  interest_rate: string;
+  finish_at: string;
+  status: 'active' | 'closed' | 'broken'; 
+  created_at: string;
+}
 
 export default function SavingsPage() {
+  const { success, error, warning } = useToast(); 
+  const [accounts, setAccounts] = useState<SavingsAccount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [amount, setAmount] = useState('');
+  const [duration, setDuration] = useState(3); 
+  const [epin, setEpin] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [isBreaking, setIsBreaking] = useState(false);
+  const [showBreakConfirm, setShowBreakConfirm] = useState(false);
+
+  useEffect(() => {
+    fetchSavings();
+  }, []);
+
+  const fetchSavings = async () => {
+    try {
+      setLoading(true);
+      const res = await savingsAPI.getAccounts();
+      setAccounts(res.data.data || res.data); 
+    } catch (err: any) {
+      error("Failed to load savings");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const activeAccount = accounts?.find(a => a.status === 'active');
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      await savingsAPI.create({
+        amount: parseFloat(amount),
+        durationMonths: duration,
+        epin
+      });
+      success('Fixed Savings Started!');
+      setAmount('');
+      setEpin('');
+      setShowConfirm(false);
+      fetchSavings();
+    } catch (err: any) {
+      error(err.response?.data?.message || 'Creation failed');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleBreakAccount = async (id: number) => {
+    setIsBreaking(true);  
+    try {
+      const res = await savingsAPI.break(id);
+      success(`Success! ৳${res.data.data.principal} returned to wallet.`);
+      setShowBreakConfirm(false);
+      fetchSavings();
+    } catch (err: any) {
+      error(err.response?.data?.message || 'Failed to close account');
+    } finally {
+      setIsBreaking(false);
+    }
+  };
+
+  if (loading) return <div className="flex justify-center p-20"><Loader2 className="animate-spin text-indigo-600" /></div>;
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Savings</h1>
-        <p className="text-gray-600 mt-1">Save money and earn interest</p>
+    <div className="max-w-4xl mx-auto p-4 space-y-8 pb-20">
+      {/* Header Section */}
+      <div className="bg-indigo-600 rounded-3xl p-8 text-white shadow-lg flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold">Fixed Savings</h1>
+          <p className="opacity-90">Secure 7% Annual Interest</p>
+        </div>
+        <PiggyBank className="w-12 h-12 opacity-50" />
       </div>
 
-      {/* Total Savings Card */}
-      <div className="card bg-gradient-to-br from-green-500 to-green-700 text-white">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-medium opacity-90">Total Savings</h2>
-          <PiggyBank className="w-6 h-6 opacity-90" />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2">
+          {activeAccount ? (
+            /* ACTIVE ACCOUNT CARD */
+            <div className="bg-white rounded-3xl p-8 shadow-sm border border-indigo-100">
+              <div className="flex justify-between items-start mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-indigo-500 rounded-2xl text-white">
+                    <Lock size={24} />
+                  </div>
+                  <h2 className="text-xl font-bold text-slate-800">Active Deposit</h2>
+                </div>
+                <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">Active</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 mb-8">
+                <div className="bg-slate-50 p-4 rounded-2xl">
+                  <p className="text-xs text-slate-500 uppercase font-bold">Principal</p>
+                  <p className="text-2xl font-black text-slate-800">৳{parseFloat(activeAccount.principal_amount).toLocaleString()}</p>
+                </div>
+                <div className="bg-indigo-50 p-4 rounded-2xl text-indigo-700">
+                  <p className="text-xs uppercase font-bold">Interest Rate</p>
+                  <p className="text-2xl font-black">7.00%</p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-slate-600 font-medium px-2">
+                  <Calendar size={18} className="text-indigo-500" />
+                  <span>Matures: {new Date(activeAccount.finish_at).toLocaleDateString(undefined, { dateStyle: 'long' })}</span>
+                </div>
+                {/* THIS BUTTON NOW TRIGGERS THE MODAL INSTEAD OF BREAKING DIRECTLY */}
+                <button 
+                  onClick={() => setShowBreakConfirm(true)}
+                  className="w-full py-4 bg-red-50 text-red-600 font-bold rounded-2xl hover:bg-red-100 transition-all flex items-center justify-center gap-2"
+                >
+                  <Unlock size={18} /> Break Early
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* CREATE SAVINGS FORM */
+            <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
+              <h2 className="text-xl font-bold mb-6 text-slate-800">New Savings Plan</h2>
+              <form onSubmit={(e) => { e.preventDefault(); setShowConfirm(true); }} className="space-y-6">
+                <div>
+                  <label className="block text-sm font-bold text-slate-500 mb-2 uppercase">Amount (Min ৳500)</label>
+                  <input 
+                    type="number" 
+                    className="w-full p-4 bg-slate-50 border-none rounded-2xl text-2xl font-bold focus:ring-2 focus:ring-indigo-500"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    placeholder="0.00"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-500 mb-2 uppercase">Duration</label>
+                  <div className="grid grid-cols-3 gap-3">
+                    {[3, 6, 12].map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setDuration(m)}
+                        className={`py-3 rounded-xl font-bold border-2 transition-all ${
+                          duration === m ? 'border-indigo-500 bg-indigo-50 text-indigo-600' : 'border-slate-100 text-slate-400'
+                        }`}
+                      >
+                        {m} Mo
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <button type="submit" className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl shadow-lg hover:bg-indigo-700 transition-all active:scale-95">
+                  Initialize Plan
+                </button>
+              </form>
+            </div>
+          )}
         </div>
-        <div className="text-4xl font-bold mb-2">৳ 0.00</div>
-        <p className="text-sm opacity-90 mb-6">Interest earned this month: ৳ 0.00</p>
-        <button className="w-full bg-white text-green-600 py-3 rounded-lg font-medium hover:bg-gray-100 transition-colors flex items-center justify-center space-x-2">
-          <Plus className="w-5 h-5" />
-          <span>Add to Savings</span>
-        </button>
-      </div>
 
-      {/* Savings Plans */}
-      <div>
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold">Savings Plans</h2>
-          <button className="text-primary-600 hover:text-primary-700 text-sm font-medium">
-            + Create New Plan
-          </button>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-6">
-          {/* Example Savings Plan */}
-          <div className="card">
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <h3 className="font-semibold text-gray-900">Emergency Fund</h3>
-                <p className="text-sm text-gray-600">Save for emergencies</p>
-              </div>
-              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                <Target className="w-5 h-5 text-blue-600" />
-              </div>
-            </div>
-            
-            {/* Progress */}
-            <div className="mb-3">
-              <div className="flex justify-between text-sm mb-1">
-                <span className="text-gray-600">Progress</span>
-                <span className="font-medium">৳ 0 / ৳ 50,000</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div className="bg-blue-600 h-2 rounded-full" style={{ width: '0%' }}></div>
-              </div>
-            </div>
-
-            <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-600">0% Complete</span>
-              <button className="text-primary-600 hover:text-primary-700 text-sm font-medium">
-                Add Money
-              </button>
-            </div>
-          </div>
-
-          {/* Placeholder for more plans */}
-          <div className="card border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-primary-500 hover:bg-primary-50 transition-colors">
-            <div className="text-center py-8">
-              <Plus className="w-12 h-12 mx-auto text-gray-400 mb-2" />
-              <p className="font-medium text-gray-700">Create New Plan</p>
-              <p className="text-sm text-gray-500 mt-1">Set a savings goal</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Interest Rates */}
-      <div className="card">
-        <h2 className="text-xl font-bold mb-4">Interest Rates</h2>
+        {/* HISTORY SECTION */}
         <div className="space-y-4">
-          <div className="flex justify-between items-center p-4 bg-gray-50 rounded-lg">
-            <div>
-              <h3 className="font-medium text-gray-900">Regular Savings</h3>
-              <p className="text-sm text-gray-600">Flexible withdrawals</p>
-            </div>
-            <div className="text-right">
-              <p className="text-2xl font-bold text-green-600">5%</p>
-              <p className="text-xs text-gray-500">per annum</p>
-            </div>
-          </div>
-
-          <div className="flex justify-between items-center p-4 bg-gray-50 rounded-lg">
-            <div>
-              <h3 className="font-medium text-gray-900">Fixed Savings</h3>
-              <p className="text-sm text-gray-600">Lock-in for 12 months</p>
-            </div>
-            <div className="text-right">
-              <p className="text-2xl font-bold text-green-600">8%</p>
-              <p className="text-xs text-gray-500">per annum</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Savings Tips */}
-      <div className="card bg-blue-50 border border-blue-200">
-        <div className="flex items-start space-x-3">
-          <TrendingUp className="w-6 h-6 text-blue-600 flex-shrink-0 mt-1" />
-          <div>
-            <h3 className="font-semibold text-gray-900 mb-1">Savings Tip</h3>
-            <p className="text-sm text-gray-700">
-              Set up automatic transfers to your savings account every month. Even small amounts add up over time!
-            </p>
+          <h3 className="font-bold text-slate-800 flex items-center gap-2 px-2">
+            <History size={18} /> History
+          </h3>
+          <div className="space-y-3">
+            {accounts.filter(a => a.status !== 'active').length > 0 ? (
+              accounts.filter(a => a.status !== 'active').map((acc) => (
+                <div key={acc.id} className="p-4 bg-white rounded-2xl border border-slate-100 flex justify-between items-center transition-hover hover:border-indigo-200">
+                  <div>
+                    <p className="font-bold text-slate-700">৳{parseFloat(acc.principal_amount).toLocaleString()}</p>
+                    <p className={`text-[10px] font-black uppercase tracking-tighter ${acc.status === 'closed' ? 'text-emerald-500' : 'text-slate-400'}`}>
+                      {acc.status}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                     <p className="text-xs text-slate-400 font-medium">{new Date(acc.created_at).toLocaleDateString()}</p>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-center text-slate-400 text-sm py-10">No history yet</p>
+            )}
           </div>
         </div>
       </div>
+
+      {/* CREATE CONFIRMATION MODAL */}
+      {showConfirm && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in duration-200">
+            <h3 className="text-2xl font-bold text-center mb-6">Confirm Setup</h3>
+            <div className="space-y-3 mb-8 bg-slate-50 p-4 rounded-2xl">
+              <div className="flex justify-between text-slate-600 text-sm"><span>Principal</span><span className="font-bold text-slate-900">৳{amount}</span></div>
+              <div className="flex justify-between text-slate-600 text-sm"><span>Term</span><span className="font-bold text-slate-900">{duration} Months</span></div>
+              <div className="flex justify-between text-slate-600 text-sm"><span>Interest</span><span className="font-bold text-emerald-600">7.00%</span></div>
+            </div>
+
+            <form onSubmit={handleCreate} className="space-y-4">
+              <input
+                type="password"
+                maxLength={5}
+                placeholder="5-Digit ePin"
+                className="w-full p-4 bg-slate-50 rounded-2xl text-center text-2xl tracking-[0.5em] font-mono focus:ring-2 focus:ring-indigo-500 border-none"
+                value={epin}
+                onChange={(e) => setEpin(e.target.value.replace(/\D/g, ''))}
+                required
+              />
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setShowConfirm(false)} className="flex-1 py-3 text-slate-400 font-bold">Cancel</button>
+                <button type="submit" disabled={isSubmitting} className="flex-[2] py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg">
+                  {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : 'Confirm'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CUSTOM BREAK CONFIRMATION MODAL */}
+      {showBreakConfirm && activeAccount && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl animate-in fade-in zoom-in duration-200">
+            <div className="text-center">
+              <div className="bg-red-50 text-red-500 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
+                <AlertTriangle size={40} />
+              </div>
+              
+              <h3 className="text-2xl font-black text-slate-900 mb-2">Are you sure?</h3>
+              <p className="text-slate-500 text-sm mb-8 leading-relaxed">
+                Breaking this account before maturity will result in <span className="text-red-600 font-bold underline">0% interest earned</span>. You will only receive your principal amount (৳{parseFloat(activeAccount.principal_amount).toLocaleString()}).
+              </p>
+
+              <div className="flex flex-col gap-3">
+                <button
+                  disabled={isBreaking}
+                  onClick={() => handleBreakAccount(activeAccount.id)}
+                  className="w-full py-4 bg-red-600 text-white font-bold rounded-2xl hover:bg-red-700 transition-all flex items-center justify-center shadow-lg active:scale-95"
+                >
+                  {isBreaking ? <Loader2 className="animate-spin" /> : "Yes, Break Early"}
+                </button>
+                
+                <button
+                  disabled={isBreaking}
+                  onClick={() => setShowBreakConfirm(false)}
+                  className="w-full py-4 text-slate-400 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                >
+                  Cancel, Keep Saving
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
