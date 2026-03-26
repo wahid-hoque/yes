@@ -197,8 +197,11 @@ export const adminApi = {
 };
 
 export const merchantAPI = {
-  getMerchants: () => apiClient.get('/merchants'),
-  getMerchantDetails: (id: string) => apiClient.get(`/merchants/${id}`),
+  getMerchants: () => apiClient.get('/merchant'),
+  getMerchantDetails: (id: string) => apiClient.get(`/merchant/${id}`),
+  getDashboard: () => apiClient.get('/merchant/dashboard'),
+  getRankings: (params: any) => apiClient.get('/merchant/rankings', { params }),
+  getRegions: (q: string) => apiClient.get(`/merchant/regions?q=${q}`),
   getSubscriptionStatus: () => apiClient.get('/merchant/subscription/status'),
   subscribe: (data: { planType: 'monthly' | 'semi-annual'; epin: string }) => 
     apiClient.post('/merchant/subscription/subscribe', data),
@@ -219,4 +222,19 @@ export const subscriptionAPI = {
     apiClient.patch(`/subscriptions/${id}/toggle-renew`),
 };
 
+
+export const paymentMethodAPI = {
+  // Get available banks/cards (Master Data)
+  getOptions: () => apiClient.get('/payment-methods/options'),
+  
+  // Link a new external account (Handshake)
+  link: (data: any) => apiClient.post('/payment-methods/link', data),
+  
+  // Get the user's already linked accounts
+  getMyMethods: () => apiClient.get('/payment-methods/my-methods'),
+  
+  // Perform the actual "Add Money" (Top-up) transaction
+  topup: (data: { methodId: number | string; amount: number | string }) => 
+    apiClient.post('/payment-methods/topup', data),
+};
 
