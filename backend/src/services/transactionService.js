@@ -113,10 +113,27 @@ class TransactionService {
         throw new Error('Duplicate transaction detected — please wait before retrying');
       }
 
+      // ── Step 4.5: Calculate fee ─────────────────────────────
+      const favRes = await client.query(
+        `SELECT 1 FROM favorites WHERE user_id = $1 AND phone = $2 LIMIT 1`,
+        [fromUserId, toPhone]
+      );
+      const fee = favRes.rows.length > 0 ? 0.00 : 5.00;
+      const totalDeduction = parseFloat(amount) + fee;
+
+      let systemWallet = null;
+      if (fee > 0) {
+        const sysRes = await client.query(
+          "SELECT wallet_id FROM wallets WHERE wallet_type = 'system' AND system_purpose = 'profit' FOR UPDATE"
+        );
+        if (sysRes.rows.length === 0) throw new Error('System revenue wallet not found');
+        systemWallet = sysRes.rows[0];
+      }
+
       // ── Step 5: Balance check ───────────────────────────────
       const currentBalance = parseFloat(senderWallet.balance);
-      if (currentBalance < parseFloat(amount)) {
-        throw new Error(`Insufficient balance. Available: ৳${currentBalance.toFixed(2)}`);
+      if (currentBalance < totalDeduction) {
+        throw new Error(`Insufficient balance. Available: ৳${currentBalance.toFixed(2)}${fee > 0 ? ` (Required: ৳${totalDeduction.toFixed(2)} incl ৳5 fee)` : ''}`);
       }
 
       // ── Step 6: Create transaction record (status = 'initiated') ──
@@ -137,15 +154,28 @@ class TransactionService {
       // ── Step 7: Deduct from sender ──────────────────────────
       await client.query(
         'UPDATE wallets SET balance = balance - $1 WHERE wallet_id = $2',
-        [amount, senderWallet.wallet_id]
+        [totalDeduction, senderWallet.wallet_id]
       );
+
+      if (fee > 0 && systemWallet) {
+        await client.query(
+          'UPDATE wallets SET balance = balance + $1 WHERE wallet_id = $2',
+          [fee, systemWallet.wallet_id]
+        );
+        await client.query(
+          `INSERT INTO transactions (from_wallet_id, to_wallet_id, amount, transaction_type, status, reference)
+           VALUES ($1, $2, $3, 'system_profit', 'completed', $4)`,
+          [senderWallet.wallet_id, systemWallet.wallet_id, fee, `FEE-${reference}`]
+        );
+      }
+
       const newBalanceRow = await client.query(
         'SELECT balance FROM wallets WHERE wallet_id = $1',
         [senderWallet.wallet_id]
       );
       const newSenderBalance = parseFloat(newBalanceRow.rows[0].balance);
       await logEvent(client, transactionId, 'amount_deducted', 'info',
-        `৳${amount} deducted from sender. Remaining: ৳${newSenderBalance}`);
+        `৳${totalDeduction} deducted from sender${fee > 0 ? ' (incl ৳5 fee)' : ''}. Remaining: ৳${newSenderBalance}`);
 
       // ── Step 8: Credit receiver ─────────────────────────────
       await client.query(
@@ -169,6 +199,7 @@ class TransactionService {
         transaction_id: transactionId,
         reference,
         amount: parseFloat(amount),
+        charge: fee,
         to: receiverWallet.name,
         to_phone: toPhone,
         new_balance: newSenderBalance,
@@ -914,6 +945,112 @@ class TransactionService {
 
     return updateRes.rows[0];
   }
+
+  // REVERSE TRANSACTION (Admin Only)
+  async reverseTransaction(transactionId , adminUserId) {
+    const client = await getClient();
+    let reversalTxnId = null;
+
+    try {
+      await client.query('BEGIN');
+
+      // 1. Fetch original transaction
+      const txnRes = await client.query(
+        `SELECT * FROM transactions WHERE transaction_id = $1 AND status = 'completed'`,
+        [transactionId]
+      );
+      if (txnRes.rows.length === 0) throw new Error('Original completed transaction not found');
+      const originalTxn = txnRes.rows[0];
+
+            const refCheck = await client.query(
+        `SELECT 1 FROM transactions WHERE reference = $1`,
+        [`REV-${originalTxn.reference}`]
+      );
+      if (refCheck.rows.length > 0) {
+        throw new Error('A reversal record already exists for this transaction');
+      }
+
+      const reversibleTypes = ['transfer', 'request_payment'];
+      if (!reversibleTypes.includes(originalTxn.transaction_type)) {
+        throw new Error('Only standard peer-to-peer transfers or paid money requests can be reversed');
+      }
+
+      // 2. Lock wallets (Original Receiver becomes Sender, Original Sender becomes Receiver)
+      const receiverWalletRes = await client.query(
+        `SELECT wallet_id, user_id, balance, status FROM wallets WHERE wallet_id = $1 FOR UPDATE`,
+        [originalTxn.to_wallet_id]
+      );
+      const senderWalletRes = await client.query(
+        `SELECT wallet_id, user_id, balance, status FROM wallets WHERE wallet_id = $1 FOR UPDATE`,
+        [originalTxn.from_wallet_id]
+      );
+
+      const receiverWallet = receiverWalletRes.rows[0];
+      const senderWallet = senderWalletRes.rows[0];
+
+      if (parseFloat(receiverWallet.balance) < parseFloat(originalTxn.amount)) {
+        throw new Error('Receiver has insufficient balance to reverse this transaction');
+      }
+
+      // 3. Create reversal transaction record
+      const reference = `REV-${originalTxn.reference}`;
+      const revRes = await client.query(
+        `INSERT INTO transactions 
+           (from_wallet_id, to_wallet_id, amount, transaction_type, status, reference)
+         VALUES ($1, $2, $3, 'reversal', 'initiated', $4)
+         RETURNING transaction_id`,
+        [receiverWallet.wallet_id, senderWallet.wallet_id, originalTxn.amount, reference]
+      );
+      reversalTxnId = revRes.rows[0].transaction_id;
+
+      // 4. Update Balances
+      await client.query(
+        'UPDATE wallets SET balance = balance - $1 WHERE wallet_id = $2',
+        [originalTxn.amount, receiverWallet.wallet_id]
+      );
+      await client.query(
+        'UPDATE wallets SET balance = balance + $1 WHERE wallet_id = $2',
+        [originalTxn.amount, senderWallet.wallet_id]
+      );
+
+      const senderNumberRes = await client.query(`select phone from users where user_id = $1`, [senderWallet.user_id]);
+      const receiverNumberRes = await client.query(`select phone from users where user_id = $1`, [receiverWallet.user_id]);
+
+      const senderPhone = senderNumberRes.rows[0].phone;
+      const receiverPhone = receiverNumberRes.rows[0].phone;
+
+
+
+
+      // 5. Finalize
+      await client.query(
+        `UPDATE transactions SET status = 'completed' WHERE transaction_id = $1`,
+        [reversalTxnId]
+      );
+      
+      await client.query('update transactions set status = $1, transaction_type = $2 where transaction_id = $3', ['reversed', 'reversal', transactionId]);
+
+      await client.query(`INSERT INTO admin_activity_logs (admin_user_id, action_type, target_id, description) VALUES ($1, $2, $3, $4)`, [adminUserId, 'reverse_transaction', transactionId, `Transaction reversed by Admin id ${adminUserId}. Amount: ৳${originalTxn.amount} reversed From: ${senderPhone}, To: ${receiverPhone}`]);
+
+      // Update original transaction to link reversal
+      await logEvent(client, originalTxn.transaction_id, 'reversed', 'info', `Transaction reversed by Admin. Reversal ID: ${reversalTxnId}`);
+      await logEvent(client, reversalTxnId, 'completed', 'success', `Reversal of txn #${originalTxn.transaction_id} completed`);
+
+      await client.query(`insert into notifications (user_id, message) values ($1, $2)`, [receiverWallet.user_id, `A transaction of ৳${originalTxn.amount} has been reversed. Your wallet has been debited.`]);
+      await client.query(`insert into notifications (user_id, message) values ($1, $2)`, [senderWallet.user_id, `A transaction of ৳${originalTxn.amount} has been reversed. Your wallet has been credited.`]);
+
+      await client.query('COMMIT');
+      return { success: true, reversal_id: reversalTxnId, amount: originalTxn.amount };
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      if (reversalTxnId) await recordFailure(reversalTxnId, error.message);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
 }
 
 export default new TransactionService();

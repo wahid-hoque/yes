@@ -28,7 +28,8 @@ class LoanController {
   async adminGetAll(req, res, next) {
     try {
       const limit = req.query.limit ? parseInt(req.query.limit) : null;
-      const applications = await loanService.getAllApplications('submitted', limit);
+      const status = req.query.status || 'submitted';
+      const applications = await loanService.getAllApplications(status, limit);
       res.json({ success: true, data: applications });
     } catch (error) { next(error); }
   }
@@ -42,7 +43,7 @@ class LoanController {
 
   async adminReject(req, res, next) {
     try {
-      await loanService.rejectLoan(req.params.id);
+      await loanService.rejectLoan(req.user.userId,req.params.id);
       res.json({ success: true, message: "Loan application rejected." });
     } catch (error) { next(error); }
   }
