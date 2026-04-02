@@ -17,6 +17,7 @@ import {
   History
 } from 'lucide-react';
 import Link from 'next/link';
+import { useToast } from '@/contexts/toastcontext';
 
 interface DashboardStats {
   profile: {
@@ -28,9 +29,11 @@ interface DashboardStats {
     total_tx: string;
     total_volume: string;
   };
+  rank?: string | number;
 }
 
 export default function MerchantDashboard() {
+  const toast = useToast();
   const { user } = useAuthStore();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
@@ -49,8 +52,13 @@ export default function MerchantDashboard() {
       
       if (dashRes.data.success) setStats(dashRes.data.data);
       if (historyRes.data.success) setTransactions(historyRes.data.data);
-    } catch (error) {
-      console.error('Merchant Dashboard Load Error:', error);
+    } catch (err: any) {
+      console.error('Merchant Dashboard Load Error:', err);
+      if (err.response?.data?.errors) {
+        err.response.data.errors.forEach((e: any) => {
+          toast.error(e.message || 'Validation error');
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -72,19 +80,19 @@ export default function MerchantDashboard() {
       color: 'bg-indigo-600',
     },
     {
-      label: 'Current Month Reach',
-      value: `৳--`,
-      sub: 'Top 5 in your category',
-      icon: TrendingUp,
-      color: 'bg-emerald-600',
-    },
-    {
-      label: 'Merchant Rank',
-      value: '#--',
-      sub: 'View leaderboard',
+      label: 'Monthly Standings',
+      value: stats?.rank ? `#${stats.rank}` : '#--',
+      sub: stats?.rank ? 'Your performance rank' : 'Calculating rank...',
       icon: Trophy,
       color: 'bg-amber-600',
-      link: '/merchant/rankings'
+      link: '/merchant/profile'
+    },
+    {
+      label: 'System Status',
+      value: 'Online',
+      sub: 'All terminals operational',
+      icon: Shield,
+      color: 'bg-emerald-600',
     },
   ];
 
@@ -104,12 +112,12 @@ export default function MerchantDashboard() {
           </h1>
           <p className="text-slate-500 text-sm mt-1">Manage your merchant terminal and monitor sales velocity.</p>
         </div>
-        <Link 
-          href="/merchant/rankings"
-          className="inline-flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-2 rounded-xl border border-blue-100 hover:bg-blue-100 transition-colors font-bold text-sm"
-        >
-          <Trophy className="w-4 h-4" /> Merchant Leaderboard
-        </Link>
+        <div className="flex items-center gap-2">
+            <div className="bg-amber-50 text-amber-700 px-4 py-2 rounded-xl border border-amber-100 flex items-center gap-2 font-black text-sm">
+                <Trophy className="w-4 h-4" />
+                Current Rank: {stats?.rank ? `#${stats.rank}` : '--'}
+            </div>
+        </div>
       </div>
 
       {/* Stat Cards */}
@@ -175,8 +183,8 @@ export default function MerchantDashboard() {
               <Link href="/merchant/transactions" className="flex items-center gap-4 p-4 rounded-2xl bg-slate-100 hover:bg-indigo-600 hover:text-white transition-all font-bold">
                 <FileText className="w-5 h-5" /> Receipts & Ledger
               </Link>
-              <Link href="/merchant/rankings" className="flex items-center gap-4 p-4 rounded-2xl bg-slate-100 hover:bg-amber-600 hover:text-white transition-all font-bold">
-                <Trophy className="w-5 h-5" /> Leaderboards
+              <Link href="/merchant/send" className="flex items-center gap-4 p-4 rounded-2xl bg-slate-100 hover:bg-emerald-600 hover:text-white transition-all font-bold">
+                <ArrowUpRight className="w-5 h-5" /> Send Money
               </Link>
             </div>
           </div>

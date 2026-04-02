@@ -12,6 +12,7 @@
 
 import { query, getClient } from '../config/database.js';
 import { comparePassword } from '../middleware/auth.js';
+import fraudDetectionService from './fraudDetectionService.js';
 
 // ──────────────────────────────────────────────────────────────
 // INTERNAL HELPERS
@@ -118,7 +119,11 @@ class TransactionService {
         `SELECT 1 FROM favorites WHERE user_id = $1 AND phone = $2 LIMIT 1`,
         [fromUserId, toPhone]
       );
-      const fee = favRes.rows.length > 0 ? 0.00 : 5.00;
+      
+      const settingsRes = await client.query("SELECT setting_value FROM system_settings WHERE setting_key = 'send_money_fee'");
+      const defaultFee = settingsRes.rows.length > 0 ? parseFloat(settingsRes.rows[0].setting_value) : 5.00;
+      
+      const fee = favRes.rows.length > 0 ? 0.00 : defaultFee;
       const totalDeduction = parseFloat(amount) + fee;
 
       let systemWallet = null;
@@ -133,7 +138,7 @@ class TransactionService {
       // ── Step 5: Balance check ───────────────────────────────
       const currentBalance = parseFloat(senderWallet.balance);
       if (currentBalance < totalDeduction) {
-        throw new Error(`Insufficient balance. Available: ৳${currentBalance.toFixed(2)}${fee > 0 ? ` (Required: ৳${totalDeduction.toFixed(2)} incl ৳5 fee)` : ''}`);
+        throw new Error(`Insufficient balance. Available: ৳${currentBalance.toFixed(2)}${fee > 0 ? ` (Required: ৳${totalDeduction.toFixed(2)} incl ৳${fee} fee)` : ''}`);
       }
 
       // ── Step 6: Create transaction record (status = 'initiated') ──
@@ -175,7 +180,7 @@ class TransactionService {
       );
       const newSenderBalance = parseFloat(newBalanceRow.rows[0].balance);
       await logEvent(client, transactionId, 'amount_deducted', 'info',
-        `৳${totalDeduction} deducted from sender${fee > 0 ? ' (incl ৳5 fee)' : ''}. Remaining: ৳${newSenderBalance}`);
+        `৳${totalDeduction} deducted from sender${fee > 0 ? ` (incl ৳${fee} fee)` : ''}. Remaining: ৳${newSenderBalance}`);
 
       // ── Step 8: Credit receiver ─────────────────────────────
       await client.query(
@@ -194,6 +199,11 @@ class TransactionService {
         `Transfer to ${receiverWallet.name} completed`);
 
       await client.query('COMMIT');
+
+      // Fire-and-forget fraud detection check (non-blocking)
+      fraudDetectionService.checkForRepeatedTransactions(
+        senderWallet.wallet_id, receiverWallet.wallet_id, amount, 'transfer'
+      ).catch(err => console.error('[FRAUD] Non-blocking check error:', err.message));
 
       return {
         transaction_id: transactionId,
@@ -254,12 +264,15 @@ class TransactionService {
       console.log(`[TX] Receiver ${receiverWallet[0].name} locked`);
 
       // 3. Calculation
-      const fee = parseFloat((amount * 0.0125).toFixed(2));
+      const settingsRes = await client.query("SELECT setting_value FROM system_settings WHERE setting_key = 'merchant_fee'");
+      const merchantRate = settingsRes.rows.length > 0 ? parseFloat(settingsRes.rows[0].setting_value) : 0.0125;
+      
+      const fee = parseFloat((amount * merchantRate).toFixed(2));
       const totalDeduction = amount + fee;
       console.log(`[TX] Amount: ${amount}, Fee: ${fee}, Total: ${totalDeduction}`);
 
       if (parseFloat(merchantWallet[0].balance) < totalDeduction) {
-        throw new Error(`Insufficient funds. Required: ৳${totalDeduction.toFixed(2)} (incl. 1.25% fee)`);
+        throw new Error(`Insufficient funds. Required: ৳${totalDeduction.toFixed(2)} (incl. ${(merchantRate * 100).toFixed(2)}% fee)`);
       }
 
       // 4. System Wallet
@@ -298,6 +311,11 @@ class TransactionService {
       await client.query("UPDATE transactions SET status = 'completed' WHERE transaction_id = $1", [transactionId]);
       await client.query('COMMIT');
       console.log('[TX] COMMIT successful');
+
+      // Fire-and-forget fraud detection check
+      fraudDetectionService.checkForRepeatedTransactions(
+        merchantWallet[0].wallet_id, receiverWallet[0].wallet_id, amount, 'merchant_transfer'
+      ).catch(err => console.error('[FRAUD] Non-blocking check error:', err.message));
 
       const { rows: finalBal } = await client.query('SELECT balance FROM wallets WHERE wallet_id = $1', [merchantWallet[0].wallet_id]);
 
@@ -444,6 +462,11 @@ class TransactionService {
 
       await client.query('COMMIT');
 
+      // Fire-and-forget fraud detection check
+      fraudDetectionService.checkForRepeatedTransactions(
+        agentWallet.wallet_id, userWallet.wallet_id, amount, 'cash_in'
+      ).catch(err => console.error('[FRAUD] Non-blocking check error:', err.message));
+
       return {
         transaction_id: transactionId,
         reference,
@@ -504,14 +527,20 @@ class TransactionService {
       if (systemRes.rows.length === 0) throw new Error('System profit wallet not found');
       const systemWallet = systemRes.rows[0];
 
-      // 3. Fee Math (1.5% total)
-      const systemProfit = parseFloat((amount * 0.01).toFixed(2));
-      const agentCommission = parseFloat((amount * 0.005).toFixed(2));
+      // 3. Fee Math
+      const sysProfitRes = await client.query("SELECT setting_value FROM system_settings WHERE setting_key = 'cashout_system_fee'");
+      const agentCommRes = await client.query("SELECT setting_value FROM system_settings WHERE setting_key = 'cashout_agent_fee'");
+      
+      const systemProfitRate = sysProfitRes.rows.length > 0 ? parseFloat(sysProfitRes.rows[0].setting_value) : 0.01;
+      const agentCommRate = agentCommRes.rows.length > 0 ? parseFloat(agentCommRes.rows[0].setting_value) : 0.005;
+
+      const systemProfit = parseFloat((amount * systemProfitRate).toFixed(2));
+      const agentCommission = parseFloat((amount * agentCommRate).toFixed(2));
       const totalFee = systemProfit + agentCommission;
       const totalDeduction = amount + totalFee;
 
       if (parseFloat(userWallet.balance) < totalDeduction) {
-        throw new Error(`Insufficient balance. Required: ৳${totalDeduction.toFixed(2)} (incl. 1.5% fee)`);
+        throw new Error(`Insufficient balance. Required: ৳${totalDeduction.toFixed(2)} (incl. ${((systemProfitRate + agentCommRate) * 100).toFixed(2)}% fee)`);
       }
 
       // 4. Initiate Transaction Record
@@ -535,7 +564,7 @@ class TransactionService {
       // B. Credit Agent (Principal + 0.5%)
       const agentTotal = amount + agentCommission;
       await client.query('UPDATE wallets SET balance = balance + $1 WHERE wallet_id = $2', [agentTotal, agentWallet.wallet_id]);
-      await logEvent(client, transactionId, 'amount_credited', 'info', `৳${agentTotal} credited to agent (includes 0.5% commission)`);
+      await logEvent(client, transactionId, 'amount_credited', 'info', `৳${agentTotal} credited to agent (includes ${(agentCommRate * 100).toFixed(2)}% commission)`);
 
       // C. Credit System Profit (1%)
       await client.query('UPDATE wallets SET balance = balance + $1 WHERE wallet_id = $2', [systemProfit, systemWallet.wallet_id]);
@@ -568,6 +597,11 @@ class TransactionService {
       await logEvent(client, transactionId, 'completed', 'success', `Cashout successful`);
 
       await client.query('COMMIT');
+
+      // Fire-and-forget fraud detection check
+      fraudDetectionService.checkForRepeatedTransactions(
+        userWallet.wallet_id, agentWallet.wallet_id, amount, 'cash_out'
+      ).catch(err => console.error('[FRAUD] Non-blocking check error:', err.message));
 
       return {
         transaction_id: transactionId,

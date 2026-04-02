@@ -21,4 +21,13 @@ router.get('/merchant/rankings', protect, adminController.getMerchantRankings);
 router.get('/merchant/regions', protect, adminController.getMerchantRegions);
 router.post('/notifications/send', protect, adminController.sendNotification);
 
+// Fraud Detection routes
+router.get('/fraud/alerts', protect, adminController.getFraudAlerts);
+router.post('/fraud/alerts/:id/resolve', protect, adminController.resolveFraudAlert);
+router.get('/fraud/stats', protect, adminController.getFraudStats);
+
+// System Settings
+router.get('/settings', protect, adminController.getSettings);
+router.patch('/settings', protect, adminController.updateSetting);
+
 export default router;

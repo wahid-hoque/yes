@@ -14,9 +14,11 @@ import {
   Zap,
   Download,
   Phone,
+  Star,
 } from 'lucide-react';
-import { transactionAPI, walletAPI } from '@/lib/api';
+import { transactionAPI, walletAPI, paymentMethodAPI, notificationAPI } from '@/lib/api';
 import Link from 'next/link';
+import { useToast } from '@/contexts/toastcontext';
 import { TransactionSummaryModal } from '@/components/TransactionSummaryModal';
 
 interface Transaction {
@@ -35,17 +37,77 @@ interface Transaction {
 
 export default function DashboardPage() {
   const { user } = useAuthStore();
+  const toast = useToast();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [txnStats, setTxnStats] = useState({ total: 0, types: {} as Record<string, number> });
   const [loading, setLoading] = useState(true);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [notifications, setNotifications] = useState<{notification_id: string; message: string; created_at: string}[]>([]);
+  const [notifLoading, setNotifLoading] = useState(true);
 
   const [balance, setBalance] = useState<number>(user?.wallet?.balance || 0);
+  const [expenses, setExpenses] = useState<number>(0);
+  const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
 
   useEffect(() => {
     fetchRecentTransactions();
     fetchBalance();
+    fetchCurrentMonthExpense();
+    fetchPaymentMethods();
+    fetchNotifications();
   }, []);
+
+  const fetchNotifications = async () => {
+    try {
+      setNotifLoading(true);
+      const response = await notificationAPI.getRecent();
+      if (response.data.success) {
+        setNotifications(response.data.data);
+      }
+    } catch (err: any) {
+      console.error('Failed to fetch notifications:', err);
+      if (err.response?.data?.errors) {
+        err.response.data.errors.forEach((e: any) => {
+          toast.error(e.message || 'Validation error');
+        });
+      }
+    } finally {
+      setNotifLoading(false);
+    }
+  };
+
+  const fetchPaymentMethods = async () => {
+    try {
+      const response = await paymentMethodAPI.getMyMethods();
+      if (response.data.success) {
+        setPaymentMethods(response.data.data);
+      }
+    } catch (err: any) {
+      console.error('Failed to fetch payment methods:', err);
+      if (err.response?.data?.errors) {
+        err.response.data.errors.forEach((e: any) => {
+          toast.error(e.message || 'Validation error');
+        });
+      }
+    }
+  };
+
+  const fetchCurrentMonthExpense = async ()=> {
+    try{
+      const response = await walletAPI.getCurrentMonthExpenses();
+      if( response.data.success){
+        setExpenses(response.data.data);
+      }
+    } catch (err: any) {
+      console.error('Failed to fetch current month expense:', err);
+      if (err.response?.data?.errors) {
+        err.response.data.errors.forEach((e: any) => {
+          toast.error(e.message || 'Validation error');
+        });
+      }
+    }
+
+  };
 
   const fetchBalance = async () => {
     try {
@@ -53,8 +115,13 @@ export default function DashboardPage() {
       if (response.data.success) {
         setBalance(response.data.data);
       }
-    } catch (error) {
-      console.error('Failed to fetch balance:', error);
+    } catch (err: any) {
+      console.error('Failed to fetch balance:', err);
+      if (err.response?.data?.errors) {
+        err.response.data.errors.forEach((e: any) => {
+          toast.error(e.message || 'Validation error');
+        });
+      }
     }
   };
 
@@ -85,8 +152,13 @@ export default function DashboardPage() {
 
         setTxnStats({ total, types });
       }
-    } catch (error) {
-      console.error('Failed to fetch transactions:', error);
+    } catch (err: any) {
+      console.error('Failed to fetch transactions:', err);
+      if (err.response?.data?.errors) {
+        err.response.data.errors.forEach((e: any) => {
+          toast.error(e.message || 'Validation error');
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -105,11 +177,12 @@ export default function DashboardPage() {
       hour12: true
     });
   };
+  const formatCurrency = (val: any) => `৳${(Number(val) || 0).toFixed(2)}`;
 
   const statCards = [
     {
       label: 'Total Balance',
-      value: `৳${balance.toFixed(2)}`,
+      value: formatCurrency(balance),
       sub: 'Available balance',
       icon: Wallet,
       gradient: 'gradient-indigo',
@@ -117,17 +190,21 @@ export default function DashboardPage() {
       iconBg: 'bg-white/20',
     },
     {
-      label: 'This Month',
-      value: '৳0.00',
-      sub: '+0% from last month',
-      icon: TrendingUp,
+      label: 'Linked Methods',
+      value: paymentMethods.length > 0 ? `${paymentMethods.length} Saved` : 'None',
+      sub: paymentMethods.length > 0 ? paymentMethods.map(m => {
+        const name = m.bank_name || m.network_name || 'Bank';
+        const identifier = m.identifier ? String(m.identifier).slice(-4) : '****';
+        return `${name} ••${identifier}`;
+      }).join(' | ') : 'No cards/banks added',
+      icon: CreditCard,
       gradient: 'gradient-emerald',
       glow: 'shadow-glow-emerald',
       iconBg: 'bg-white/20',
     },
     {
       label: 'Expenses',
-      value: '৳0.00',
+      value: formatCurrency(expenses),
       sub: '-0% from last month',
       icon: TrendingDown,
       gradient: 'gradient-rose',
@@ -192,10 +269,6 @@ export default function DashboardPage() {
             Here&apos;s what&apos;s happening with your wallet today.
           </p>
         </div>
-        <div className="hidden md:flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-slate-200 shadow-sm text-sm text-slate-600">
-          <span className="w-2 h-2 rounded-full bg-emerald-400" />
-          All systems normal
-        </div>
       </div>
 
 
@@ -215,6 +288,25 @@ export default function DashboardPage() {
           </div>
         ))}
       </div>
+
+      {/* ── My ClickPay Banner ──────────────────────────────────────── */}
+      <Link href="/dashboard/my-clickpay" className="block w-full bg-gradient-to-r from-slate-900 to-indigo-900 rounded-[2rem] p-8 shadow-xl relative overflow-hidden group hover:shadow-2xl transition-all hover:-translate-y-1">
+        <div className="absolute right-0 top-0 w-64 h-64 bg-indigo-500/20 blur-3xl rounded-full -mr-10 -mt-20 pointer-events-none transition-all group-hover:bg-indigo-400/30"></div>
+        <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+          <div className="flex flex-col md:flex-row items-start md:items-center gap-6">
+            <div className="w-16 h-16 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center border border-white/20">
+              <Star className="w-8 h-8 text-yellow-400 fill-current" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-black text-white tracking-tight mb-1">My ClickPay</h2>
+              <p className="text-indigo-200 font-medium text-sm">Manage your favorite numbers, agents, active loans, and payment methods in one place.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 bg-white/10 backdrop-blur-md px-6 py-3 rounded-xl border border-white/20 text-white font-bold group-hover:bg-white/20 transition-all text-sm">
+            Access Hub <ArrowUpRight className="w-4 h-4" />
+          </div>
+        </div>
+      </Link>
 
       {/* ── Two Column ──────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -313,13 +405,13 @@ export default function DashboardPage() {
             </Link>
           </div>
 
-          {loading ? (
+          {notifLoading ? (
             <div className="space-y-3">
               {[1, 2, 3].map(i => (
                 <div key={i} className="h-14 rounded-xl animate-shimmer" />
               ))}
             </div>
-          ) : transactions.length === 0 ? (
+          ) : notifications.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-center">
               <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center mb-3">
                 <Bell className="w-6 h-6 text-slate-400" />
@@ -329,47 +421,22 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div className="space-y-2">
-              {transactions.map((t) => {
-                const isCredit = t.direction === 'credit';
-
-                let displayType = t.transaction_type.replace(/_/g, ' ');
-                displayType = displayType.split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-
-                if (t.transaction_type === 'transfer') {
-                  displayType = isCredit ? 'Received Money' : 'Send Money';
-                } else if (t.transaction_type === 'cash_in') {
-                  displayType = 'Cash In';
-                }
-
-                return (
-                  <div
-                    key={`notif-${t.transaction_id}`}
-                    className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 hover:bg-primary-50 transition-colors group cursor-default"
-                  >
-                    <div className="w-8 h-8 rounded-lg bg-primary-100 flex items-center justify-center flex-shrink-0 mt-0.5 group-hover:bg-primary-200 transition-colors">
-                      <Bell className="w-4 h-4 text-primary-600" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="text-sm font-semibold text-slate-800 truncate">
-                            {displayType}
-                          </p>
-                          <p className="text-xs text-slate-500 mt-0.5">
-                            {isCredit ? t.from_name : `To: ${t.to_name}`}
-                          </p>
-                        </div>
-                        <div className="text-right shrink-0 ml-2">
-                          <p className={`text-sm font-bold ${isCredit ? 'text-emerald-600' : 'text-slate-800'}`}>
-                            {isCredit ? '+' : '-'}৳{parseFloat(t.amount).toFixed(2)}
-                          </p>
-                          <p className="text-[10px] text-slate-400 mt-0.5">{formatTime(t.created_at)}</p>
-                        </div>
-                      </div>
-                    </div>
+              {notifications.map((n) => (
+                <div
+                  key={`notif-${n.notification_id}`}
+                  className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 hover:bg-primary-50 transition-colors group cursor-default"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-primary-100 flex items-center justify-center flex-shrink-0 mt-0.5 group-hover:bg-primary-200 transition-colors">
+                    <Bell className="w-4 h-4 text-primary-600" />
                   </div>
-                );
-              })}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-slate-800">
+                      {n.message}
+                    </p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">{formatTime(n.created_at)}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

@@ -70,6 +70,8 @@ export const transactionAPI = {
     apiClient.post('/transactions/cash-out', data),
   getHistory: (params?: any) => apiClient.get('/transactions/history', { params }),
   getDetails: (id: string) => apiClient.get(`/transactions/${id}`),
+  reverse: (transactionId: string) => 
+    apiClient.post(`/transactions/${transactionId}/reverse`),
 };
 
 export const walletAPI = {
@@ -79,6 +81,7 @@ export const walletAPI = {
   getPaymentMethods: () => apiClient.get('/wallets/payment-methods'),
   removePaymentMethod: (id: string) => apiClient.delete(`/wallets/payment-methods/${id}`),
   topup: (data: any) => apiClient.post('/wallets/topup', data),
+  getCurrentMonthExpenses : () => apiClient.get('/wallets/current-month-expense'),
 };
 
 export const qrAPI = {
@@ -193,6 +196,23 @@ export const adminApi = {
       // This maps to /api/v1/loans/admin/detailed in your backend
       const response = await apiClient.get('/loans/admin/detailed');
       return response.data;
+    },
+
+    // Fraud Detection
+    getFraudAlerts: async (status?: string) => {
+      const params = status ? `?status=${status}` : '';
+      const response = await apiClient.get(`/admin/fraud/alerts${params}`);
+      return response.data;
+    },
+
+    resolveFraudAlert: async (alertId: number, action: 'freeze' | 'dismiss', note?: string) => {
+      const response = await apiClient.post(`/admin/fraud/alerts/${alertId}/resolve`, { action, note });
+      return response.data;
+    },
+
+    getFraudStats: async () => {
+      const response = await apiClient.get('/admin/fraud/stats');
+      return response.data;
     }
 };
 
@@ -238,3 +258,16 @@ export const paymentMethodAPI = {
     apiClient.post('/payment-methods/topup', data),
 };
 
+export const favoriteAPI = {
+  addFavorite: (data: { type: 'number' | 'agent'; phone: string; name: string }) => 
+    apiClient.post('/favorites', data),
+  getFavorites: (type?: 'number' | 'agent') => 
+    apiClient.get('/favorites', { params: { type } }),
+  toggleFavorite: (id: string | number) =>
+    apiClient.patch(`/favorites/${id}/toggle`),
+};
+
+
+export const systemAPI = {
+  getSettings: () => apiClient.get('/system/settings'),
+};

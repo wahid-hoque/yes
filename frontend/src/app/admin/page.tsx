@@ -42,7 +42,9 @@ import AgentRankingList from '@/components/AgentRankingList';
 import MerchantRankingList from '@/components/MerchantRankingList';
 import { DatePickerDialog } from '@/components/DatePickerDialog';
 import Link from 'next/link';
-import toast from 'react-hot-toast';
+import { useToast } from '@/contexts/toastcontext';
+import { ConfirmModal } from '@/components/ConfirmModal';
+
 
 function useOnClickOutside(ref: any, handler: any) {
   useEffect(() => {
@@ -134,7 +136,174 @@ const LoanSummaryWidget = () => {
     );
 };
 
+const DefaultedLoansWidget = () => {
+    const [loans, setLoans] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchDefaulted = async () => {
+            try {
+                const token = localStorage.getItem('token');
+                const res = await fetch(`${API_BASE}/loans/admin/detailed`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const result = await res.json();
+                if (result.success) {
+                    // Filter for defaulted loans OR loans that are past due but still active
+                    setLoans(result.data.filter((l: any) => 
+                        l.status === 'defaulted' || 
+                        (l.status !== 'repaid' && new Date(l.due_at) <= new Date())
+                    ));
+                }
+            } catch (error) {
+                console.error("Failed to fetch defaulted loans:", error);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchDefaulted();
+    }, []);
+
+    if (loading) return <div className="p-10 text-center text-xs font-black text-slate-400 uppercase tracking-widest italic">Scanning defaults...</div>;
+
+    return (
+        <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-200">
+            <div className="flex justify-between items-center mb-8">
+                <div>
+                    <h4 className="font-black text-rose-600 uppercase text-xs tracking-widest">Defaulted & Past Due</h4>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">Immediate action or auto-deduction pending</p>
+                </div>
+                <div className="px-3 py-1 bg-rose-100 text-rose-600 rounded-lg text-[10px] font-black uppercase tracking-widest">
+                    {loans.length} Overdue
+                </div>
+            </div>
+
+            <div className="space-y-3">
+                {loans.length > 0 ? loans.map((loan: any) => (
+                    <div key={loan.loan_id} className="flex items-center justify-between p-4 bg-rose-50/50 rounded-2xl border border-rose-100 hover:bg-rose-50 transition-all group">
+                        <div className="flex items-center space-x-4">
+                            <div className="w-10 h-10 bg-rose-100 rounded-xl flex items-center justify-center text-rose-600 font-black group-hover:bg-rose-600 group-hover:text-white transition-all">
+                                {loan.user_name ? loan.user_name[0] : 'U'}
+                            </div>
+                            <div>
+                                <p className="text-sm font-black text-slate-800">{loan.user_name}</p>
+                                <p className="text-[10px] text-rose-500 font-bold uppercase tracking-wider">৳{(loan.principal_amount * 1.09).toFixed(2)} OVERDUE SINCE {new Date(loan.due_at).toLocaleDateString()}</p>
+                            </div>
+                        </div>
+                        <button className="p-2.5 bg-white rounded-xl text-rose-400 hover:text-rose-600 shadow-sm border border-rose-100 transition-colors">
+                            <ShieldAlert size={16} />
+                        </button>
+                    </div>
+                )) : (
+                    <div className="text-center py-12 bg-emerald-50 rounded-[1.5rem] border-2 border-dashed border-emerald-100">
+                        <p className="text-emerald-500 text-[10px] font-black uppercase tracking-widest italic">All portfolios are healthy</p>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+const SystemSettingsWidget = () => {
+    const [settings, setSettings] = useState<{setting_key: string; setting_value: number; description: string}[]>([]);
+    const [inputValues, setInputValues] = useState<Record<string, string>>({});
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState<string | null>(null);
+    const toast = useToast();
+
+    const fetchSettings = async () => {
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch(`${API_BASE}/admin/settings`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const result = await res.json();
+            if (result.success) {
+                setSettings(result.data);
+                const vals: Record<string, string> = {};
+                result.data.forEach((s: any) => { vals[s.setting_key] = String(s.setting_value); });
+                setInputValues(vals);
+            }
+        } catch (e) { console.error(e); }
+        finally { setLoading(false); }
+    };
+
+    useEffect(() => { fetchSettings(); }, []);
+
+    const handleSave = async (key: string) => {
+        const val = parseFloat(inputValues[key]);
+        if (isNaN(val)) { toast.error('Invalid value'); return; }
+        setSaving(key);
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch(`${API_BASE}/admin/settings`, {
+                method: 'PATCH',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key, value: val })
+            });
+            const result = await res.json();
+            if (result.success) { toast.success(`${key.replace(/_/g, ' ')} updated!`); fetchSettings(); }
+            else { toast.error(result.message || 'Update failed'); }
+        } catch { toast.error('Network error'); }
+        finally { setSaving(null); }
+    };
+
+    if (loading) return <div className="p-10 text-center text-xs font-black text-slate-400 uppercase tracking-widest">Loading settings...</div>;
+
+    return (
+        <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-200 relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-8 opacity-5 pointer-events-none">
+                <Settings size={140} className="text-slate-800" />
+            </div>
+            <div className="flex justify-between items-start mb-8 relative z-10">
+                <div>
+                    <h4 className="font-black text-indigo-600 uppercase text-xs tracking-widest mb-1">Global Protocol Settings</h4>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase">Edit a value then click Save to apply it instantly across all services.</p>
+                </div>
+                <div className="p-3 bg-indigo-100 rounded-xl border border-indigo-200">
+                    <Activity className="text-indigo-600" size={20} />
+                </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 relative z-10">
+                {settings.map((s) => (
+                    <div key={s.setting_key} className="bg-slate-50 p-6 rounded-2xl border border-slate-100 hover:border-indigo-200 transition-all group">
+                        <div className="flex items-center justify-between mb-3">
+                            <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">{s.setting_key.replace(/_/g, ' ')}</p>
+                            {s.setting_key.includes('rate') || s.setting_key.includes('fee') ? <Percent size={13} className="text-slate-300 group-hover:text-indigo-600 transition-colors" /> : <DollarSign size={13} className="text-slate-300 group-hover:text-indigo-600 transition-colors" />}
+                        </div>
+                        <p className="text-[11px] text-slate-500 mb-4 leading-tight capitalize">{s.description}</p>
+                        <div className="flex gap-2">
+                            <input
+                                type="number"
+                                step="any"
+                                value={inputValues[s.setting_key] ?? ''}
+                                onChange={(e) => setInputValues(prev => ({ ...prev, [s.setting_key]: e.target.value }))}
+                                className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 font-black text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/50 transition-all placeholder-slate-300"
+                            />
+                            <button
+                                onClick={() => handleSave(s.setting_key)}
+                                disabled={saving === s.setting_key}
+                                className="px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-black hover:bg-indigo-700 transition-all disabled:opacity-50 shadow-sm shadow-indigo-600/10 whitespace-nowrap"
+                            >
+                                {saving === s.setting_key ? '...' : 'Save'}
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+            <div className="mt-8 pt-6 border-t border-slate-200 flex items-center justify-between">
+                <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Changes are applied immediately to all new transactions</p>
+                <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+                    <span className="text-[9px] font-black uppercase tracking-tighter text-emerald-600">Live Sync</span>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 export default function AdminDashboard() {
+    const toast = useToast();
     const [activeSection, setActiveSection] = useState('dashboard');
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [selectedCity, setSelectedCity] = useState("");
@@ -160,12 +329,24 @@ export default function AdminDashboard() {
 
     const [datePickerTarget, setDatePickerTarget] = useState<string | null>(null);
 
+    const [notifyAudience, setNotifyAudience] = useState('all');
+    const [notifyPhone, setNotifyPhone] = useState('');
+    const [notifyMessage, setNotifyMessage] = useState('');
+    const [notifySending, setNotifySending] = useState(false);
+
     const [analytics, setAnalytics] = useState<any>(null);
     const [portfolio, setPortfolio] = useState<any>(null);
     const [audit, setAudit] = useState<any[]>([]);
     const [users, setUsers] = useState<any[]>([]);
     const [cities, setCities] = useState<string[]>([]);
     const router = useRouter();
+
+    // Fraud Detection State
+    const [fraudAlerts, setFraudAlerts] = useState<any[]>([]);
+    const [fraudStats, setFraudStats] = useState<any>(null);
+    const [fraudFilter, setFraudFilter] = useState<string>('');
+    const [fraudLoading, setFraudLoading] = useState(false);
+    const [fraudResolving, setFraudResolving] = useState<number | null>(null);
 
     useEffect(() => {
         const fetchAdminData = async () => {
@@ -195,8 +376,14 @@ export default function AdminDashboard() {
                 if (citiesJson.success) {
                     setCities(citiesJson.data);
                 }
-            } catch (error) {
-                console.error("Failed to fetch admin data", error);
+            } catch (err: any) {
+                console.error("Failed to fetch admin data", err);
+                toast.error("Failed to load dashboard data");
+                if (err.response?.data?.errors) {
+                  err.response.data.errors.forEach((e: any) => {
+                    toast.error(e.message || 'Validation error');
+                  });
+                }
             }
         };
         fetchAdminData();
@@ -219,8 +406,13 @@ export default function AdminDashboard() {
                 if (data.success) {
                     setTrendData(data.data);
                 }
-            } catch (error) {
-                console.error("Failed to fetch trend data", error);
+            } catch (err: any) {
+                console.error("Failed to fetch trend data", err);
+                if (err.response?.data?.errors) {
+                  err.response.data.errors.forEach((e: any) => {
+                    toast.error(e.message || 'Validation error');
+                  });
+                }
             }
         };
         fetchTrendData();
@@ -272,8 +464,161 @@ export default function AdminDashboard() {
         return () => clearTimeout(delay);
     }, [userSearch]);
 
+    // Fetch Fraud Alerts
+    useEffect(() => {
+        const fetchFraudData = async () => {
+            try {
+                setFraudLoading(true);
+                const token = localStorage.getItem('token');
+                if (!token) return;
+                const headers = { Authorization: `Bearer ${token}` };
+
+                const alertsUrl = `http://localhost:5000/api/v1/admin/fraud/alerts${fraudFilter ? `?status=${fraudFilter}` : ''}`;
+                const [alertsRes, statsRes] = await Promise.all([
+                    fetch(alertsUrl, { headers }),
+                    fetch('http://localhost:5000/api/v1/admin/fraud/stats', { headers })
+                ]);
+                const alertsData = await alertsRes.json();
+                const statsData = await statsRes.json();
+
+                if (alertsData.success) setFraudAlerts(alertsData.data);
+                if (statsData.success) setFraudStats(statsData.data);
+            } catch (err: any) {
+                console.error('Failed to fetch fraud data', err);
+                if (err.response?.data?.errors) {
+                  err.response.data.errors.forEach((e: any) => {
+                    toast.error(e.message || 'Validation error');
+                  });
+                }
+            } finally {
+                setFraudLoading(false);
+            }
+        };
+        fetchFraudData();
+    }, [fraudFilter]);
+
+    const handleSendNotification = async () => {
+        if (!notifyMessage.trim()) return toast.error("Message is required");
+        if (notifyAudience === 'phone' && !notifyPhone.trim()) return toast.error("Phone number is required");
+        
+        try {
+            setNotifySending(true);
+            const token = localStorage.getItem('token');
+            const res = await fetch(`http://localhost:5000/api/v1/admin/notifications/send`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    audience: notifyAudience,
+                    phone: notifyAudience === 'phone' ? notifyPhone : undefined,
+                    message: notifyMessage
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success(`Notification sent to ${data.sentCount} recipient(s)`);
+                setNotifyMessage('');
+                setNotifyPhone('');
+                setNotifyAudience('all');
+            } else {
+                toast.error(data.error || data.message || "Failed to send notification");
+            }
+        } catch (err: any) {
+            console.error('[NOTIFY] Error:', err);
+            toast.error(err.response?.data?.message || err.message || "An error occurred");
+        } finally {
+            setNotifySending(false);
+        }
+    };
+
+    const [confirmConfig, setConfirmConfig] = useState<{
+        isOpen: boolean;
+        title: string;
+        message: string;
+        onConfirm: () => void;
+        type: 'danger' | 'warning' | 'info';
+        confirmText: string;
+    }>({
+        isOpen: false,
+        title: '',
+        message: '',
+        onConfirm: () => {},
+        type: 'warning',
+        confirmText: 'Confirm'
+    });
+
+    const handleResolveFraudAlert = async (alertId: number, action: 'freeze' | 'dismiss') => {
+        const title = action === 'freeze' ? 'Freeze User Account' : 'Dismiss Fraud Alert';
+        const message = action === 'freeze'
+            ? 'Are you sure you want to FREEZE this user\'s account? All transactions will be blocked immediately.'
+            : 'Are you sure you want to DISMISS this alert? The account will remain active and this alert record will be archived.';
+        
+        setConfirmConfig({ 
+            isOpen: true, 
+            title, 
+            message, 
+            onConfirm: () => executeFraudAction(alertId, action),
+            type: action === 'freeze' ? 'danger' : 'warning',
+            confirmText: action === 'freeze' ? 'Freeze Now' : 'Dismiss Alert'
+        });
+    };
+
+    const executeFraudAction = async (alertId: number, action: 'freeze' | 'dismiss') => {
+        try {
+            setFraudResolving(alertId);
+            const token = localStorage.getItem('token');
+            const res = await fetch(`http://localhost:5000/api/v1/admin/fraud/alerts/${alertId}/resolve`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({ action })
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success(data.message);
+                setFraudAlerts(prev => prev.map(a => a.alert_id === alertId ? { ...a, alert_status: action === 'freeze' ? 'frozen' : 'dismissed' } : a));
+                const statsRes = await fetch('http://localhost:5000/api/v1/admin/fraud/stats', {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                const statsData = await statsRes.json();
+                if (statsData.success) setFraudStats(statsData.data);
+                if (action === 'freeze') {
+                    setUsers(prev => prev.map(u => u.user_id === data.flaggedUserId ? { ...u, status: 'frozen' } : u));
+                }
+            } else {
+                toast.error(data.message || 'Failed to resolve alert');
+            }
+        } catch (err: any) {
+            console.error('Failed to resolve fraud alert', err);
+            toast.error(err.response?.data?.message || err.message || 'An error occurred while resolving the alert');
+        } finally {
+            setFraudResolving(null);
+            setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+        }
+    };
+
     const toggleUserStatus = async (id: number, currentStatus: string) => {
         const action = currentStatus === 'active' ? 'freeze' : 'unfreeze';
+        const title = action === 'freeze' ? 'Freeze Account' : 'Unfreeze Account';
+        const message = action === 'freeze' 
+            ? 'Are you sure you want to freeze this user? They will lose access to all funds.' 
+            : 'Are you sure you want to unfreeze this user and restore their access?';
+
+        setConfirmConfig({
+            isOpen: true,
+            title,
+            message,
+            confirmText: action === 'freeze' ? 'Freeze Member' : 'Restore Member',
+            type: action === 'freeze' ? 'danger' : 'info',
+            onConfirm: () => executeToggleStatus(id, action)
+        });
+    };
+
+    const executeToggleStatus = async (id: number, action: 'freeze' | 'unfreeze') => {
         try {
             const res = await fetch(`http://localhost:5000/api/v1/admin/users/${id}/status`, {
                 method: 'PATCH',
@@ -285,10 +630,16 @@ export default function AdminDashboard() {
             });
             const data = await res.json();
             if (data.success) {
+                toast.success(`User successfully ${action}d`);
                 setUsers(users.map(u => u.user_id === id ? { ...u, status: data.status } : u));
+            } else {
+                toast.error(data.message || 'Toggle failed');
             }
         } catch (error) {
             console.error("Failed to toggle status", error);
+            toast.error('An error occurred during status update');
+        } finally {
+            setConfirmConfig(prev => ({ ...prev, isOpen: false }));
         }
     };
 
@@ -313,7 +664,6 @@ export default function AdminDashboard() {
     };
 
     const handleLogout = () => {
-        toast.dismiss();
         localStorage.removeItem('token');
         router.push('/auth/login');
     };
@@ -341,16 +691,22 @@ export default function AdminDashboard() {
 
                 <nav className="flex-1 overflow-y-auto p-4 space-y-1 mt-4">
                     <NavBtn icon={<LayoutDashboard />} label="Financial Analytics" active={activeSection === 'dashboard'} onClick={() => scrollToSection('dashboard')} collapsed={!isSidebarOpen} />
+                    <NavBtn icon={<Users />} label="Agent Ranking" active={activeSection === 'agents'} onClick={() => scrollToSection('agents')} collapsed={!isSidebarOpen} />
+                    <NavBtn icon={<Store />} label="Merchant Ranking" active={activeSection === 'merchants'} onClick={() => scrollToSection('merchants')} collapsed={!isSidebarOpen} />
                     <NavBtn icon={<UserRound />} label="User Management" active={activeSection === 'users'} onClick={() => scrollToSection('users')} collapsed={!isSidebarOpen} />
-                    <NavBtn icon={<Users />} label="Agent Performance" active={activeSection === 'agents'} onClick={() => scrollToSection('agents')} collapsed={!isSidebarOpen} />
-                    <NavBtn icon={<Store />} label="Merchant Performance" active={activeSection === 'merchants'} onClick={() => scrollToSection('merchants')} collapsed={!isSidebarOpen} />
                     <NavBtn icon={<Landmark />} label="Loans & Savings" active={activeSection === 'loans'} onClick={() => scrollToSection('loans')} collapsed={!isSidebarOpen} />
-                    <NavBtn icon={<RefreshCcw />} label="Reconciliation" active={activeSection === 'recon'} onClick={() => scrollToSection('recon')} collapsed={!isSidebarOpen} />
-                    <NavBtn icon={<Activity />} label="System Audit" active={activeSection === 'audit'} onClick={() => scrollToSection('audit')} collapsed={!isSidebarOpen} />
-                    <NavBtn icon={<Settings />} label="System Settings" active={activeSection === 'settings'} onClick={() => router.push('/admin/settings')} collapsed={!isSidebarOpen} />
+                    <NavBtn icon={<Bell />} label="Send Notification" active={activeSection === 'notify'} onClick={() => scrollToSection('notify')} collapsed={!isSidebarOpen} />
+                    <NavBtn icon={<ShieldAlert />} label="Fraud Alerts" active={activeSection === 'fraud'} onClick={() => scrollToSection('fraud')} collapsed={!isSidebarOpen} />
+                    <NavBtn icon={<RefreshCcw />} label="Reconciliation" active={activeSection === 'recon'} onClick={() => scrollToSection('recon')} collapsed={!isSidebarOpen}/>
+                    <NavBtn icon={<Activity />} label="Admin Action History" active={activeSection === 'audit'} onClick={() => scrollToSection('audit')} collapsed={!isSidebarOpen} />
+                    <NavBtn icon={<Settings />} label="System Settings" active={activeSection === 'settings'} onClick={() => scrollToSection('settings')} collapsed={!isSidebarOpen} />
                 </nav>
 
-                <div className="p-4 border-t border-slate-900">
+                <div className="p-4 border-t border-slate-900 space-y-1">
+                    <button onClick={() => router.push('/admin/settings')} className="flex items-center gap-3 w-full p-3 hover:bg-white/5 text-slate-400 hover:text-white rounded-xl transition-all">
+                        <UserRound size={18} />
+                        {isSidebarOpen && <span className="font-bold text-sm">Account Settings</span>}
+                    </button>
                     <button onClick={handleLogout} className="flex items-center gap-3 w-full p-3 hover:bg-rose-500/10 hover:text-rose-500 rounded-xl transition-all">
                         <LogoutIcon />
                         {isSidebarOpen && <span className="font-bold text-sm">Exit System</span>}
@@ -380,14 +736,7 @@ export default function AdminDashboard() {
                         </div>
                         <div className="flex gap-2">
                             <IconButton icon={<Bell size={20}/>} badge />
-                            <div className="h-10 w-[1px] bg-slate-200 mx-2"></div>
-                            <div className="flex items-center gap-3">
-                                <div className="text-right hidden sm:block">
-                                    <p className="text-sm font-black text-slate-800">Wahid Hoque</p>
-                                    <p className="text-[10px] text-indigo-600 font-bold">Super Admin</p>
-                                </div>
-                                <div className="w-12 h-12 rounded-2xl bg-slate-900 border-4 border-white shadow-xl flex items-center justify-center text-white font-black text-lg">W</div>
-                            </div>
+                            
                         </div>
                     </div>
                 </header>
@@ -405,8 +754,8 @@ export default function AdminDashboard() {
                     {/* SECTION 1, 3, 5: ANALYTICS, CHURN & TRENDS */}
                     <section id="dashboard" className="scroll-mt-32">
                         <div className="mb-6">
-                            <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Financial Intelligence</h2>
-                            <p className="text-slate-500 font-medium">Real-time revenue & user behavior analysis</p>
+                            <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Financial Analytics</h2>
+                            <p className="text-slate-500 font-medium">Real-time revenue & user transaction analysis</p>
                         </div>
 
                         <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 mb-8 flex flex-wrap gap-4 items-end">
@@ -693,7 +1042,7 @@ export default function AdminDashboard() {
                                         </div>
                                     </div>
                                 ) : (
-                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mt-2 items-center">
+                                    <div className="grid grid-cols-1 md:grid-cols-5 gap-8 mt-2 items-center">
                                         <div>
                                             <SegmentRow label="Active Wallets" value={segData?.wallets?.active_wallets || '0'} percent={(segData?.wallets?.active_wallets / (segData?.wallets?.total_wallets || 1)) * 100 || 0} color="bg-emerald-500" />
                                         </div>
@@ -702,6 +1051,9 @@ export default function AdminDashboard() {
                                         </div>
                                         <div>
                                             <SegmentRow label="Disabled Wallets" value={segData?.wallets?.disabled_wallets || '0'} percent={(segData?.wallets?.disabled_wallets / (segData?.wallets?.total_wallets || 1)) * 100 || 0} color="bg-rose-500" />
+                                        </div>
+                                        <div>
+                                            <SegmentRow label="Loan Defaults" value={segData?.wallets?.loan_defaults || '0'} percent={(segData?.wallets?.loan_defaults / (segData?.wallets?.total_wallets || 1)) * 100 || 0} color="bg-rose-600" />
                                         </div>
                                         <div>
                                             <SegmentRow label="Total Wallets" value={segData?.wallets?.total_wallets || '0'} percent={100} color="bg-indigo-600" />
@@ -726,7 +1078,7 @@ export default function AdminDashboard() {
                     <section id="users" className="scroll-mt-32">
                         <div className="flex flex-col md:flex-row justify-between md:items-end mb-8 gap-4">
                             <div>
-                                <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Account Lifecycle</h2>
+                                <h2 className="text-3xl font-black text-slate-900 tracking-tighter">User Management</h2>
                                 <p className="text-slate-500 font-medium">Freeze/Unfreeze & Detailed Directory</p>
                             </div>
                             <div className="flex flex-wrap gap-4 items-center">
@@ -740,7 +1092,7 @@ export default function AdminDashboard() {
                                         onChange={(e) => setUserSearch(e.target.value)}
                                     />
                                 </div>
-                                <button className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-black text-sm shadow-xl shadow-indigo-600/20 hover:scale-105 transition-all whitespace-nowrap">+ New User</button>
+                                
                             </div>
                         </div>
                         <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm">
@@ -755,7 +1107,7 @@ export default function AdminDashboard() {
                                 </thead>
                                 <tbody className="divide-y divide-slate-50">
                                     {users.length > 0 ? users.map((u, i) => (
-                                        <UserRow key={i} id={u.user_id} name={u.name} phone={u.phone} nid={u.nid} status={u.status} balance={u.balance} onToggle={toggleUserStatus} onViewHistory={(userId: number) => router.push(`/admin/user/${userId}`)} />
+                                        <UserRow key={i} id={u.user_id} name={u.name} phone={u.phone} nid={u.nid} status={u.status} balance={u.balance} isDefaulted={u.has_loan_default} onToggle={toggleUserStatus} onViewHistory={(userId: number) => router.push(`/admin/user/${userId}`)} />
                                     )) : (
                                         <tr><td colSpan={4} className="px-8 py-6 text-center text-slate-400">Loading users...</td></tr>
                                     )}
@@ -767,15 +1119,17 @@ export default function AdminDashboard() {
                     {/* SECTION 3: LOANS & SAVINGS (INTEGRATED WIDGET) */}
                     <section id="loans" className="scroll-mt-32">
                         <div className="mb-8">
-                            <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Credit & Interest Portfolios</h2>
+                            <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Loans & Savings</h2>
                             <p className="text-slate-500 font-medium">Review loan requests and savings maturity</p>
                         </div>
                         <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-                            {/* Loan Applications Summary */}
                             <LoanSummaryWidget />
-
+                            <DefaultedLoansWidget />
+                        </div>
+                        
+                        <div className="mt-8 grid grid-cols-1 xl:grid-cols-1 gap-8">
                             {/* Existing Savings Overview */}
-                            <div className="bg-slate-900 rounded-[2rem] p-10 text-white relative overflow-hidden flex flex-col justify-center">
+                            <div className="bg-slate-900 rounded-[2rem] p-10 text-white relative overflow-hidden flex flex-col justify-center min-h-[300px]">
                                 <div className="absolute top-0 right-0 p-10 opacity-10"><Landmark size={150}/></div>
                                 <h4 className="font-black text-indigo-400 uppercase text-xs tracking-widest mb-10">Fixed Savings Pool</h4>
                                 <div className="flex items-end gap-3 mb-4">
@@ -797,30 +1151,279 @@ export default function AdminDashboard() {
                         </div>
                     </section>
 
-                    {/* SECTION 10, 12: RECONCILIATION & AUDIT */}
-                    <section id="recon" className="scroll-mt-32">
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-                            <div className="space-y-8">
-                                <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Settlement & Audit</h2>
-                                <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
-                                    <h4 className="font-black text-slate-800 uppercase text-xs tracking-widest mb-6">Daily Reconciliation Dashboard</h4>
-                                    <div className="space-y-6">
-                                        <ReconItem label="Inflow (Cash In/Add Money)" value={`+৳${analytics?.reconciliation?.inflow || 0}`} />
-                                        <ReconItem label="Outflow (Cash Out/Payment)" value={`-৳${analytics?.reconciliation?.outflow || 0}`} />
-                                        <div className="h-[1px] bg-slate-100"></div>
-                                        <ReconItem label="Net Cash Flow" value={`৳${parseFloat(analytics?.reconciliation?.inflow || 0) - parseFloat(analytics?.reconciliation?.outflow || 0)}`} success={parseFloat(analytics?.reconciliation?.inflow || 0) - parseFloat(analytics?.reconciliation?.outflow || 0) >= 0} />
+                    {/* SECTION: SYSTEM PROTOCOL SETTINGS */}
+                    <section id="settings" className="scroll-mt-32">
+                        <div className="mb-8">
+                            <h2 className="text-3xl font-black text-slate-900 tracking-tighter">System Settings</h2>
+                            <p className="text-slate-500 font-medium">Configure global interest rates and transaction fees</p>
+                        </div>
+                        <SystemSettingsWidget />
+                    </section>
+
+                    {/* SECTION: SEND NOTIFICATIONS */}
+                    <section id="notify" className="scroll-mt-32">
+                        <div className="mb-6">
+                            <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Send Notifications</h2>
+                            <p className="text-slate-500 font-medium">Broadcast messages to users, agents, and merchants</p>
+                        </div>
+                        <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div className="space-y-6">
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-2">Target Audience</label>
+                                        <select 
+                                            value={notifyAudience}
+                                            onChange={(e) => setNotifyAudience(e.target.value)}
+                                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-bold text-slate-700 transition-all"
+                                        >
+                                            <option value="all">All Active Users (User, Agent, Merchant)</option>
+                                            <option value="users">Regular Users</option>
+                                            <option value="agents">Agents</option>
+                                            <option value="merchants">Merchants</option>
+                                            <option value="phone">Specific Phone Number</option>
+                                        </select>
+                                    </div>
+                                    
+                                    {notifyAudience === 'phone' && (
+                                        <div className="animate-fadeIn">
+                                            <label className="block text-sm font-bold text-slate-700 mb-2">Recipient Phone</label>
+                                            <input 
+                                                type="text" 
+                                                placeholder="e.g. 017XXXXXXXX"
+                                                value={notifyPhone}
+                                                onChange={(e) => setNotifyPhone(e.target.value)}
+                                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-bold text-slate-700 transition-all"
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                                
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">Message</label>
+                                    <textarea 
+                                        rows={4}
+                                        placeholder="Type your notification message here..."
+                                        value={notifyMessage}
+                                        onChange={(e) => setNotifyMessage(e.target.value)}
+                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-bold text-slate-700 transition-all resize-none"
+                                    ></textarea>
+                                    <div className="text-right mt-2 flex justify-end">
+                                        <button 
+                                            onClick={handleSendNotification}
+                                            disabled={notifySending}
+                                            className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-black text-sm shadow-xl shadow-indigo-600/20 hover:scale-[1.02] transition-all disabled:opacity-50 flex items-center gap-2"
+                                        >
+                                            {notifySending ? (
+                                                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                            ) : <Bell size={18} />}
+                                            {notifySending ? 'Sending...' : 'Broadcast Notification'}
+                                        </button>
                                     </div>
                                 </div>
                             </div>
-                            <div id="audit" className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm flex flex-col">
-                                <h4 className="font-black text-slate-800 uppercase text-xs tracking-widest mb-6 flex items-center gap-3">
-                                    <Activity className="text-indigo-600"/> Admin Action History
-                                </h4>
-                                <div className="flex-1 space-y-4 max-h-80 overflow-y-auto pr-4">
+                        </div>
+                    </section>
+
+                    {/* SECTION: FRAUD DETECTION ALERTS */}
+                    <section id="fraud" className="scroll-mt-32">
+                        <div className="mb-6">
+                            <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Fraud Alerts</h2>
+                            <p className="text-slate-500 font-medium">Monitor suspicious transactions & take action</p>
+                        </div>
+
+                        {/* Fraud Stats Cards */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
+                            <div onClick={() => setFraudFilter('')} className={`bg-white p-6 rounded-2xl border cursor-pointer transition-all hover:shadow-lg hover:-translate-y-0.5 ${!fraudFilter ? 'border-indigo-300 ring-2 ring-indigo-100' : 'border-slate-200'}`}>
+                                <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center mb-4"><ShieldCheck className="text-indigo-600" size={22} /></div>
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Alerts</p>
+                                <p className="text-3xl font-black text-slate-900 mt-1">{fraudStats?.total || 0}</p>
+                            </div>
+                            <div onClick={() => setFraudFilter('pending')} className={`bg-white p-6 rounded-2xl border cursor-pointer transition-all hover:shadow-lg hover:-translate-y-0.5 ${fraudFilter === 'pending' ? 'border-amber-300 ring-2 ring-amber-100' : 'border-slate-200'}`}>
+                                <div className="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center mb-4"><ShieldAlert className="text-amber-600" size={22} /></div>
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pending Review</p>
+                                <p className="text-3xl font-black text-amber-600 mt-1">{fraudStats?.pending || 0}</p>
+                            </div>
+                            <div onClick={() => setFraudFilter('frozen')} className={`bg-white p-6 rounded-2xl border cursor-pointer transition-all hover:shadow-lg hover:-translate-y-0.5 ${fraudFilter === 'frozen' ? 'border-rose-300 ring-2 ring-rose-100' : 'border-slate-200'}`}>
+                                <div className="w-12 h-12 bg-rose-50 rounded-xl flex items-center justify-center mb-4"><Lock className="text-rose-600" size={22} /></div>
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Accounts Frozen</p>
+                                <p className="text-3xl font-black text-rose-600 mt-1">{fraudStats?.frozen || 0}</p>
+                            </div>
+                            <div onClick={() => setFraudFilter('dismissed')} className={`bg-white p-6 rounded-2xl border cursor-pointer transition-all hover:shadow-lg hover:-translate-y-0.5 ${fraudFilter === 'dismissed' ? 'border-emerald-300 ring-2 ring-emerald-100' : 'border-slate-200'}`}>
+                                <div className="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center mb-4"><UserCheck className="text-emerald-600" size={22} /></div>
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Dismissed</p>
+                                <p className="text-3xl font-black text-emerald-600 mt-1">{fraudStats?.dismissed || 0}</p>
+                            </div>
+                        </div>
+
+                        {/* Fraud Alerts List */}
+                        <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm">
+                            <div className="px-8 py-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                                <div className="flex items-center gap-3">
+                                    <ShieldAlert className="text-rose-500" size={20} />
+                                    <h4 className="font-black text-slate-800 uppercase text-xs tracking-widest">
+                                        {fraudFilter ? `${fraudFilter} alerts` : 'All Fraud Alerts'}
+                                    </h4>
+                                    <span className="text-[10px] font-black text-slate-400 bg-slate-100 px-3 py-1 rounded-full uppercase tracking-widest">
+                                        {fraudAlerts.length} alerts
+                                    </span>
+                                </div>
+                                {fraudFilter && (
+                                    <button onClick={() => setFraudFilter('')} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-200 transition-all">
+                                        Show All
+                                    </button>
+                                )}
+                            </div>
+
+                            {fraudLoading ? (
+                                <div className="p-16 text-center">
+                                    <div className="w-8 h-8 border-3 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Scanning for fraud alerts...</p>
+                                </div>
+                            ) : fraudAlerts.length === 0 ? (
+                                <div className="p-16 text-center">
+                                    <ShieldCheck className="mx-auto text-emerald-300 mb-4" size={48} />
+                                    <p className="text-sm font-black text-slate-400 uppercase tracking-widest">No fraud alerts found</p>
+                                    <p className="text-xs text-slate-300 mt-2">System is monitoring all transactions in real-time</p>
+                                </div>
+                            ) : (
+                                <div className="divide-y divide-slate-50 max-h-[600px] overflow-y-auto">
+                                    {fraudAlerts.map((alert: any) => (
+                                        <div key={alert.alert_id} className={`px-8 py-6 hover:bg-slate-50/80 transition-all ${
+                                            alert.alert_status === 'pending' ? 'border-l-4 border-l-amber-400' :
+                                            alert.alert_status === 'frozen' ? 'border-l-4 border-l-rose-400' :
+                                            'border-l-4 border-l-emerald-400'
+                                        }`}>
+                                            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                                                <div className="flex-1">
+                                                    <div className="flex flex-wrap items-center gap-3 mb-2">
+                                                        <span className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-tighter ${
+                                                            alert.alert_status === 'pending' ? 'bg-amber-100 text-amber-700' :
+                                                            alert.alert_status === 'frozen' ? 'bg-rose-100 text-rose-700' :
+                                                            'bg-emerald-100 text-emerald-700'
+                                                        }`}>
+                                                            {alert.alert_status}
+                                                        </span>
+                                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                                            Alert #{alert.alert_id}
+                                                        </span>
+                                                        <span className="px-2 py-0.5 bg-rose-50 text-rose-600 rounded-md text-[10px] font-black">
+                                                            {alert.repeat_count}× in 1 hour
+                                                        </span>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-3 mb-2">
+                                                        <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-400 text-sm">
+                                                            {alert.user_name ? alert.user_name[0] : '?'}
+                                                        </div>
+                                                        <div>
+                                                            <p className="font-black text-slate-800 text-sm">{alert.user_name || 'Unknown User'}</p>
+                                                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                                                                {alert.user_phone} • Account: <span className={alert.user_status === 'active' ? 'text-emerald-600' : 'text-rose-600'}>{alert.user_status}</span>
+                                                            </p>
+                                                        </div>
+                                                    </div>
+
+                                                    <p className="text-xs text-slate-600 leading-relaxed">{alert.description}</p>
+
+                                                    <div className="flex flex-wrap gap-3 mt-3">
+                                                        <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded">
+                                                             ৳{alert.amount}
+                                                        </span>
+                                                        <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded">
+                                                             {alert.transaction_type}
+                                                        </span>
+                                                        <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded">
+                                                             {new Date(alert.created_at).toLocaleString()}
+                                                        </span>
+                                                    </div>
+
+                                                    {alert.resolved_by_name && (
+                                                        <p className="text-[10px] text-slate-400 mt-2 italic">
+                                                            Resolved by {alert.resolved_by_name} on {new Date(alert.resolved_at).toLocaleString()}
+                                                            {alert.resolution_note && ` — "${alert.resolution_note}"`}
+                                                        </p>
+                                                    )}
+                                                </div>
+
+                                                {alert.alert_status === 'pending' && (
+                                                    <div className="flex gap-2 shrink-0">
+                                                        <button
+                                                            onClick={() => handleResolveFraudAlert(alert.alert_id, 'freeze')}
+                                                            disabled={fraudResolving === alert.alert_id}
+                                                            className="px-5 py-2.5 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-600/20 disabled:opacity-50 flex items-center gap-2"
+                                                        >
+                                                            {fraudResolving === alert.alert_id ? (
+                                                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                                            ) : <Lock size={14} />}
+                                                            Freeze Account
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleResolveFraudAlert(alert.alert_id, 'dismiss')}
+                                                            disabled={fraudResolving === alert.alert_id}
+                                                            className="px-5 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all disabled:opacity-50 flex items-center gap-2"
+                                                        >
+                                                            <UserCheck size={14} />
+                                                            Dismiss
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </section>
+
+                    <section id="recon" className="scroll-mt-32">
+                        <div className="space-y-10">
+                            {/* --- Top Part: Settlement Summary (Now Full Width) --- */}
+                            <div className="bg-white rounded-[2rem] border border-slate-200 p-8 shadow-sm">
+                                <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+                                    <div>
+                                        <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Reconciliation</h2>
+                                        <p className="text-slate-500 font-medium">Daily inflow vs outflow audit</p>
+                                    </div>
+                                    <div className="flex gap-8 bg-slate-50 p-6 rounded-2xl border border-slate-100 flex-1 md:max-w-2xl justify-around">
+                                        <ReconItem label="Inflow" value={`+৳${analytics?.reconciliation?.inflow || 0}`} />
+                                        <div className="w-[1px] h-8 bg-slate-200 hidden md:block"></div>
+                                        <ReconItem label="Outflow" value={`-৳${analytics?.reconciliation?.outflow || 0}`} />
+                                        <div className="w-[1px] h-8 bg-slate-200 hidden md:block"></div>
+                                        <ReconItem 
+                                            label="Net Flow" 
+                                            value={`৳${(parseFloat(analytics?.reconciliation?.inflow || 0) - parseFloat(analytics?.reconciliation?.outflow || 0)).toLocaleString()}`} 
+                                            success={parseFloat(analytics?.reconciliation?.inflow || 0) - parseFloat(analytics?.reconciliation?.outflow || 0) >= 0} 
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* --- Bottom Part: Admin Action History (Now Full Width) --- */}
+                            <div id="audit" className="bg-white rounded-[2rem] border border-slate-200 p-8 shadow-sm flex flex-col">
+                                <div>
+                                        <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Admin Action History</h2>
+                                    </div>
+                                <div className="flex justify-between items-center mb-8">
+                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-3 py-1 rounded-full">
+                                        {audit.length} Recent Logs
+                                    </span>
+                                </div>
+                                
+                                {/* The list now spans the full width */}
+                                <div className="flex-1 space-y-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
                                     {audit.length > 0 ? audit.map((a, i) => (
-                                        <AuditLog key={i} admin={a.admin_name || 'System'} action={a.action_type} target={`ID: ${a.target_id}`} time={new Date(a.created_at).toLocaleTimeString()} />
+                                        <AuditLog 
+                                            key={i} 
+                                            admin={a.admin_name || `Admin #${a.admin_user_id}`} 
+                                            action={a.action_type} 
+                                            target={a.target_id} 
+                                            description={a.description} 
+                                            time={new Date(a.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })} 
+                                        />
                                     )) : (
-                                        <p className="text-slate-400 text-sm">No audit logs found...</p>
+                                        <div className="text-center py-20 bg-slate-50 rounded-3xl border-2 border-dashed border-slate-100">
+                                            <p className="text-slate-400 font-black uppercase text-xs tracking-widest">No activity logs found in the system</p>
+                                        </div>
                                     )}
                                 </div>
                             </div>
@@ -828,6 +1431,15 @@ export default function AdminDashboard() {
                     </section>
 
                 </div>
+                <ConfirmModal 
+                    isOpen={confirmConfig.isOpen}
+                    title={confirmConfig.title}
+                    message={confirmConfig.message}
+                    confirmText={confirmConfig.confirmText}
+                    type={confirmConfig.type}
+                    onClose={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
+                    onConfirm={confirmConfig.onConfirm}
+                />
             </main>
         </div>
     );
@@ -857,14 +1469,21 @@ function StatCard({ title, value, trend, up, icon, bg }: any) {
     );
 }
 
-function UserRow({ id, name, phone, nid, status, balance, onToggle, onViewHistory }: any) {
+function UserRow({ id, name, phone, nid, status, balance, isDefaulted, onToggle, onViewHistory }: any) {
     return (
         <tr className="hover:bg-slate-50/80 transition-all group border-b border-slate-50 last:border-0">
             <td className="px-8 py-6">
                 <div className="flex items-center gap-4">
                     <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all">{name ? name[0] : '?'}</div>
-                    <div>
-                        <p className="font-black text-slate-800 text-sm">{name}</p>
+                    <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                            <p className="font-black text-slate-800 text-sm">{name}</p>
+                            {isDefaulted && (
+                                <span className="bg-rose-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded uppercase flex items-center gap-1 animate-pulse">
+                                    <ShieldAlert size={10} /> Loan Default
+                                </span>
+                            )}
+                        </div>
                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{phone}</p>
                     </div>
                 </div>
@@ -901,18 +1520,25 @@ function SegmentRow({ label, value, percent, color }: any) {
     );
 }
 
-function AuditLog({ admin, action, target, time }: any) {
+function AuditLog({ admin, action, target, description, time }: any) {
     return (
-        <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
-            <div className="flex items-center gap-4">
-                <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
-                <div className="text-xs">
-                    <span className="font-black text-slate-800">{admin}</span>
-                    <span className="mx-2 text-indigo-600 font-bold">{action}</span>
-                    <span className="text-slate-400">on {target}</span>
+        <div className="group p-4 bg-slate-50 hover:bg-white hover:shadow-md hover:border-indigo-100 border border-transparent rounded-2xl transition-all">
+            <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-3">
+                    <div className={`w-2 h-2 rounded-full ${
+                        action.includes('reject') || action.includes('freeze') ? 'bg-rose-500' : 'bg-emerald-500'
+                    }`}></div>
+                    <span className="text-[10px] font-black text-slate-800 uppercase tracking-tighter">{admin}</span>
+                    <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest ${
+                        action.includes('loan') ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-200 text-slate-600'
+                    }`}>{action.replace('_', ' ')}</span>
                 </div>
+                <span className="text-[9px] font-bold text-slate-400">{time}</span>
             </div>
-            <span className="text-[10px] font-black text-slate-300">{time}</span>
+            <p className="text-xs text-slate-600 font-medium leading-relaxed mb-1">{description}</p>
+            {target && (
+                <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded tracking-widest uppercase">Target ID: {target}</span>
+            )}
         </div>
     );
 }
